@@ -1,0 +1,16 @@
+[package]
+name = "reda-lefdef"
+version = "0.1.0"
+edition = "2021"
+authors = ["Gianmaria Rovelli <rovelli.gianmaria@gmail.com>"]
+license = "MIT"
+
+[build-dependencies]
+lalrpop = "0.21.0"
+
+[lib]
+[dependencies]
+eyre = "0.6.12"
+lalrpop-util = { version = "0.21.0", features = ["lexer", "unicode"] }
+pico-args = "0.5"
+

@@ -1,0 +1,1240 @@
+use std::str::FromStr;
+use crate::common_handler::*;
+use crate::def_handler::*;
+use crate::vec_push;
+use crate::set_opt;
+use crate::panic_with_context;
+
+grammar;
+
+// Add this match block to control tokenization priority
+match {
+  // Comments
+  r"#[^\n]*",
+  // Whitespace
+  r"\s+",
+} else {
+  // Keywords and literals (higher priority)
+  "*",
+  "(",
+  ")",
+  // Everything else
+  _
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  Util                                                                      //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+
+identifier: String = {
+  // cant begin with a number
+  r#"[^"\s\t\n\*\d\+-][^"\s\t\n\*]*"# => <>.to_string(),
+  // compile time really slow with size bound ... :(
+  // r#"[^"^\s^\t^\n][^\s^\t^\n]{0,2048}"# => <>.to_string(),
+};
+
+pin_name: String = {
+  // if it is a lexex token => and it is used as identifier => it will not be parsed correctly
+  // e.g. ( inst E ), E is a type of orient => lexer token, but in this case it is used as identifier => confusion
+
+  "X" => <>.to_string(),
+  "Y" => <>.to_string(),
+
+  "N" => <>.to_string(),
+  "S" => <>.to_string(),
+  "E" => <>.to_string(),
+  "W" => <>.to_string(),
+  "FN" => <>.to_string(),
+  "FS" => <>.to_string(),
+  "FE" => <>.to_string(),
+  "FW" => <>.to_string(),
+
+  "SIGNAL" => <>.to_string(), 
+  "POWER" => <>.to_string(),
+  "GROUND" => <>.to_string(),
+  "CLOCK" => <>.to_string(),
+  "TIEOFF" => <>.to_string(),
+  "ANALOG" => <>.to_string(),
+  "SCAN" => <>.to_string(),
+  "RESET" => <>.to_string(),
+
+  identifier => <>.to_string(),
+};
+
+real: f32 = {
+  r#"(-)?[\d]+[\.\deE]*"# => f32::from_str(&<>).unwrap_or_else(|_| panic!("'{}' is not an float", &<>)),
+};
+
+integer: i32 = {
+  <n:real> => n.round() as i32,
+};
+
+pattern_match: String = {
+  r#"[^\"][^\s^\t^\n]*\*"# => <>.to_string(),
+}
+
+via_pattern_cut: String = {
+  r#"\d+_\w+(_\d+_\w+)"# => <>.to_string(),
+}
+
+string: String = {
+  <r#"\"[\w\d\n\s\-\[\];'\\,\./~!@#$%^&\*\(\)_\+{}:|<>\?]*\""#> => <>.to_string(),
+};
+
+semicolon: () = {
+  ";" comment_opt
+};
+
+newline: () = {
+  "\n",
+}
+
+comment: () = {
+  r"#.*\n",
+};
+
+comment_opt: () = {
+  comment comment_opt,
+  comment newline comment_opt,
+  ()
+};
+
+value: Value = {
+  real => Value::NUMBER(<>),
+  string => Value::STRING(<>),
+};
+
+mask_no_semicolon: i32 = {
+  "MASK" <n:integer> => n
+};
+
+do_step_by_by: i32 = {
+  "BY" <by:integer>  => by
+}
+
+do_step_by: DoStepBy = {
+  "DO" <d:integer> <by:do_step_by_by?> "STEP" <sx:integer> <sy:integer> 
+  => DoStepBy::new(d, by, sx, sy)
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  Common Elements                                                           //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+orient: Orient = {
+  "N" => Orient::N,
+  "S" => Orient::S,
+  "E" => Orient::E,
+  "W" => Orient::W,
+  "FN" => Orient::FN,
+  "FS" => Orient::FS,
+  "FE" => Orient::FE,
+  "FW" => Orient::FW,
+}
+
+point: Point = {
+  "(" <x:integer> <y:integer> <e:integer?> ")" => Point::new(x, y, e),
+  // TODO: what is * here?
+  "(" pattern_match <y:integer> <e:integer?> ")" => Point::new(0, y, e),
+  "(" <x:integer> pattern_match <e:integer?> ")" => Point::new(x, 0, e),
+}
+
+point_list: Vec<Point> = {
+  <p:point+> => p,
+}
+
+rect: Rect = {
+  "(" <x1:integer> <y1:integer> ")" "(" <x2:integer> <y2:integer> ")"
+    => Rect::new(x1, y1, x2, y2),
+}
+
+rect_list: Vec<Rect> = {
+  <r:rect> <mut l:rect_list> => { l.push(r); l },
+  <r:rect> => vec![r],
+}
+
+polygon: Polygon = {
+  <pl:point_list> => Polygon::new(pl),
+}
+
+property: Property = {
+  <n:identifier> <v:value> => Property::new(n, v),
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  Header Statements                                                         //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+version: f32 = {
+  "VERSION" <v:real> semicolon => v,
+}
+
+dividerchar: String = {
+  "DIVIDERCHAR" <s:string> semicolon => s,
+}
+
+busbitchars: String = {
+  "BUSBITCHARS" <s:string> semicolon => s,
+}
+
+design_name: String = {
+  "DESIGN" <n:identifier> semicolon => n,
+}
+
+technology: String = {
+  "TECHNOLOGY" <n:identifier> semicolon => n,
+}
+
+units: u32 = {
+  "UNITS" "DISTANCE" "MICRONS" <n:integer> semicolon => n as u32,
+}
+
+history_line: String = {
+  <s:identifier> => s,
+}
+
+history: String = {
+  "HISTORY" <s:identifier> semicolon => s,
+}
+
+history_vec: Vec<String> = {
+  <h:history> <mut hl:history_vec> => { hl.push(h); hl },
+  <h:history> => vec![h],
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  PROPERTYDEFINITIONS Section                                               //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+propdef_objtype: PropertyDefinitionObjectType = {
+  "COMPONENT" => PropertyDefinitionObjectType::COMPONENT,
+  "NET" => PropertyDefinitionObjectType::NET,
+  "SPECIALNET" => PropertyDefinitionObjectType::SPECIALNET,
+  "GROUP" => PropertyDefinitionObjectType::GROUP,
+  "ROW" => PropertyDefinitionObjectType::ROW,
+  "REGION" => PropertyDefinitionObjectType::REGION,
+  "COMPONENTPIN" => PropertyDefinitionObjectType::COMPONENTPIN,
+  "DESIGN" => PropertyDefinitionObjectType::DESIGN,
+  "NONDEFAULTRULE" => PropertyDefinitionObjectType::NONDEFAULTRULE,
+}
+
+propdef_type: PropertyDefinitionType = {
+  "INTEGER" => PropertyDefinitionType::INTEGER,
+  "REAL" => PropertyDefinitionType::REAL,
+  "STRING" => PropertyDefinitionType::STRING,
+}
+
+propdef_range_int: RangeOrValueEnum = {
+  "RANGE" <min:integer> <max:integer> => RangeOrValueEnum::Integer(Some(Either::Left((min, max)))),
+  integer => RangeOrValueEnum::Integer(Some(Either::Right(<>))),
+}
+
+propdef_range_real: RangeOrValueEnum = {
+  "RANGE" <min:real> <max:real> => RangeOrValueEnum::Real(Some(Either::Left((min, max)))),
+  real => RangeOrValueEnum::Real(Some(Either::Right(<>))),
+}
+
+propdef: PropertyDefinition = {
+  <ot:propdef_objtype> <n:identifier> "INTEGER" <rv:propdef_range_int> semicolon
+    => PropertyDefinition { object_type: ot, name: n, prop_type: PropertyDefinitionType::INTEGER, range_or_value: Some(rv) },
+  <ot:propdef_objtype> <n:identifier> "INTEGER" semicolon
+    => PropertyDefinition { object_type: ot, name: n, prop_type: PropertyDefinitionType::INTEGER, range_or_value: None },
+  <ot:propdef_objtype> <n:identifier> "REAL" <rv:propdef_range_real> semicolon
+    => PropertyDefinition { object_type: ot, name: n, prop_type: PropertyDefinitionType::REAL, range_or_value: Some(rv) },
+  <ot:propdef_objtype> <n:identifier> "REAL" semicolon
+    => PropertyDefinition { object_type: ot, name: n, prop_type: PropertyDefinitionType::REAL, range_or_value: None },
+  <ot:propdef_objtype> <n:identifier> "STRING" <s:string> semicolon
+    => PropertyDefinition { object_type: ot, name: n, prop_type: PropertyDefinitionType::STRING, range_or_value: Some(RangeOrValueEnum::String(Some(s))) },
+  <ot:propdef_objtype> <n:identifier> "STRING" semicolon
+    => PropertyDefinition { object_type: ot, name: n, prop_type: PropertyDefinitionType::STRING, range_or_value: None },
+}
+
+propdef_list: Vec<PropertyDefinition> = {
+  <p:propdef> <mut l:propdef_list> => { l.push(p); l },
+  <p:propdef> => vec![p],
+}
+
+propertydefinitions: Vec<PropertyDefinition> = {
+  "PROPERTYDEFINITIONS" <pl:propdef_list> "END" "PROPERTYDEFINITIONS" => pl,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  DIEAREA Statement                                                         //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+diearea: DieArea = {
+  "DIEAREA" <pl:point_list> semicolon => DieArea::new(pl),
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  ROW Statement                                                             //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+row_props: Vec<Property> = {
+  "+" "PROPERTY" <pl:property+> => pl,
+}
+
+row: Row = {
+  "ROW" <name:identifier> <site:identifier> 
+    <x:integer> <y:integer> <o:orient>
+    <dsb:do_step_by?>
+    <props:row_props?> semicolon
+    => Row::new(name, site, x, y, o, dsb, props),
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  TRACKS Statement                                                          //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+track_dir: TrackDir = {
+  "X" => TrackDir::X,
+  "Y" => TrackDir::Y,
+}
+
+layer_name: String = {
+  <l:identifier> => l,
+}
+
+layer_list: Vec<String> = {
+  <l:layer_name> <mut ll:layer_list> => { ll.push(l); ll },
+  <l:layer_name> => vec![l],
+}
+
+tracks: Track = {
+  "TRACKS" <d:track_dir> <start:integer> 
+    "DO" <num:integer>
+    "STEP" <step:integer> "MASK" <mask:integer> "SAMEMASK" 
+    "LAYER" <ll:layer_list> semicolon
+    => Track::new(d, start, num, step, ll, Some(mask), Some(true)),
+  "TRACKS" <d:track_dir> <start:integer> "DO" <num:integer>
+    "STEP" <step:integer> "MASK" <mask:integer> 
+    "LAYER" <ll:layer_list> semicolon
+    => Track::new(d, start, num, step, ll, Some(mask), Some(false)),
+  "TRACKS" <d:track_dir> <start:integer> "DO" <num:integer>
+    "STEP" <step:integer> "LAYER" <ll:layer_list> semicolon
+    => Track::new(d, start, num, step, ll, None, None),
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  GCELLGRID Statement                                                       //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+gcellgrid: GCellGrid = {
+  "GCELLGRID" <d:track_dir> <start:integer> "DO" <num:integer>
+    "STEP" <step:integer> semicolon
+    => GCellGrid::new(d, start, num, step),
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  VIAS Section                                                              //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+via_rect: ViaRect = {
+  "+" "RECT" <n:identifier> <r:rect> <m:mask_no_semicolon?> => ViaRect::new(n, r, m)
+}
+
+via_polygon: ViaPolygon = {
+  "+" "POLYGON" <n:identifier> <m:mask_no_semicolon?> <p:polygon> => ViaPolygon::new(n,p,m),
+}
+
+via_layer: ViaLayer = {
+  <vrl:via_rect> => ViaLayer::Rect(vrl),
+  <vpl:via_polygon> => ViaLayer::Polygon(vpl),
+}
+
+via_rowcol: (i32, i32) = {
+  "+" "ROWCOL" <rows:integer> <cols:integer> => (rows, cols)
+}
+
+via_origin: (i32, i32) = {
+  "+" "ORIGIN" <ox:integer> <oy:integer> => (ox, oy)
+}
+
+via_offset: (i32, i32, i32, i32) = {
+  "+" "OFFSET" <ob1:integer> <ob2:integer> <ot1:integer> <ot2:integer> => (ob1, ob2, ot1, ot2)
+}
+
+via_pattern: String = {
+  "+" "PATTERN" <pat:via_pattern_cut> => pat
+}
+
+via: Via = {
+  "-" <name:identifier> "+" "VIARULE" <vr:identifier>
+    "+" "CUTSIZE" <cx:integer> <cy:integer>
+    "+" "LAYERS" <bot:identifier> <cut:identifier> <top:identifier>
+    "+" "CUTSPACING" <csx:integer> <csy:integer>
+    "+" "ENCLOSURE" <eb1:integer> <eb2:integer> <et1:integer> <et2:integer>
+
+    <rowcol:via_rowcol?>
+    <origin:via_origin?>
+    <offset:via_offset?>
+    <pattern:via_pattern?>
+    semicolon
+    => Via {
+      name,
+      via_type: ViaType::ViaRule(ViaViaRule {
+        name: vr,
+        cutsize: (cx, cy),
+        layers: (bot, cut, top),
+        cutspacing: (csx, csy),
+        enclosure: (eb1, eb2, et1, et2),
+        rowcol,
+        origin,
+        offset,
+        pattern,
+      }),
+    },
+  "-" <name:identifier> <vll:via_layer*> semicolon
+    => Via {
+      name,
+      via_type: ViaType::Geometry(vll),
+    },
+}
+
+vias: Vec<Via> = {
+  "VIAS" <n:integer> semicolon <vl:via*> "END" "VIAS" => vl,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  STYLES Section                                                            //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+style_point: (i32, i32) = {
+  "(" <x:integer> <y:integer> ")" => (x, y),
+}
+
+style_point_list: Vec<(i32, i32)> = {
+  <p:style_point> <mut l:style_point_list> => { l.push(p); l },
+  <p:style_point> => vec![p],
+}
+
+style: Style = {
+  "STYLE" <num:integer> <pl:style_point_list> semicolon
+    => Style { style_num: num, points: pl },
+}
+
+style_list: Vec<Style> = {
+  <s:style> <mut l:style_list> => { l.push(s); l },
+  <s:style> => vec![s],
+}
+
+styles: Vec<Style> = {
+  "STYLES" <n:integer> semicolon <sl:style_list> "END" "STYLES" => sl,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  NONDEFAULTRULES Section                                                   //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+diagwidth: i32 = {
+  "DIAGWIDTH" <d:integer> => d,
+}
+
+spacing: i32 = {
+  "SPACING" <s:integer> => s,
+}
+
+wireext: i32 = {
+  "WIREEXT" <w:integer> => w,
+}
+
+ndr_layer: NonDefaultRuleLayer = {
+  "+" "LAYER" <name:identifier> "WIDTH" <w:integer>
+    <dw:diagwidth?> <s:spacing?> <we:wireext?> 
+    => NonDefaultRuleLayer { name, width: w, diagwidth: dw, spacing: s, wireext: we },
+}
+
+ndr_via: String = {
+  "+" "VIA" <v:identifier> => v,
+}
+
+ndr_viarule: String = {
+  "+" "VIARULE" <v:identifier> => v,
+}
+
+ndr_mincut: (String, i32) = {
+  "+" "MINCUTS" <layer:identifier> <num:integer> => (layer, num),
+}
+
+ndr_prop: Vec<Property> = {
+  "+" "PROPERTY" <pl:property+> => pl,
+}
+
+hardspacing: bool = {
+  "+" "HARDSPACING" => true,
+}
+
+nondefaultrule: NonDefaultRule = {
+  "-" <name:identifier> <hs:hardspacing?> <ll:ndr_layer+>
+    <vl:ndr_via+?> <vrl:ndr_viarule+?> <ml:ndr_mincut+?>
+    <props:ndr_prop?> semicolon
+    => NonDefaultRule {
+      name,
+      hardspacing: hs,
+      layers: ll,
+      vias: vl,
+      viarules: vrl,
+      mincuts: ml,
+      properties: props,
+    },
+}
+
+nondefaultrules: Vec<NonDefaultRule> = {
+  "NONDEFAULTRULES" <n:integer> semicolon <nl:nondefaultrule*> "END" "NONDEFAULTRULES" => nl,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  REGIONS Section                                                           //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+region_type_enum: RegionType = {
+  "FENCE" => RegionType::FENCE,
+  "GUIDE" => RegionType::GUIDE,
+}
+
+region_type: RegionType = {
+  "+" "TYPE" <t:region_type_enum> => t,
+}
+
+region_prop: Vec<Property> = {
+  "+" "PROPERTY" <pl:property+> => pl,
+}
+
+region: Region = {
+  "-" <name:identifier> <rl:rect_list> <rt:region_type?> 
+    <props:region_prop?> semicolon
+    => Region {
+      name,
+      region_type: rt,
+      rects: rl,
+      properties: props,
+    },
+}
+
+regions: Vec<Region> = {
+  "REGIONS" <n:integer> semicolon <rl:region*> "END" "REGIONS" => rl,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  COMPONENTMASKSHIFT Section                                                //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+shift_list: Vec<i32> = {
+  <s:integer> <mut l:shift_list> => { l.push(s); l },
+  <s:integer> => vec![s],
+}
+
+componentmaskshift: ComponentMaskShift = {
+  "COMPONENTMASKSHIFT" <sl:shift_list> semicolon => ComponentMaskShift { shifts: sl },
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  COMPONENTS Section                                                        //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+comp_source: ComponentSource = {
+  "NETLIST" => ComponentSource::NETLIST,
+  "DIST" => ComponentSource::DIST,
+  "USER" => ComponentSource::USER,
+  "TIMING" => ComponentSource::TIMING,
+}
+
+comp_placement: ComponentPlacement = {
+  "PLACED" => ComponentPlacement::PLACED,
+  "FIXED" => ComponentPlacement::FIXED,
+  "COVER" => ComponentPlacement::COVER,
+  "UNPLACED" => ComponentPlacement::UNPLACED,
+}
+
+comp_opts: ComponentOpts = {
+  "+" "SOURCE" <s:comp_source> <mut o:comp_opts> => set_opt!(o,source,s),
+  "+" "WEIGHT" <w:integer> <mut o:comp_opts> => set_opt!(o,weight,w),
+  "+" "EEQMASTER" <e:identifier> <mut o:comp_opts> => set_opt!(o,eeq,e),
+  "+" "REGION" <r:identifier> <mut o:comp_opts> => set_opt!(o,region,r),
+  "+" <p:comp_placement> <pt:point> <or:orient> <mut o:comp_opts>
+    => set_opt!(o,placement,(p, pt, or)),
+  "+" "HALO" <l:integer> <b:integer> <r:integer> <t:integer> <mut o:comp_opts>
+    => set_opt!(o,halo,(l, b, r, t)),
+  "+" "ROUTEHALO" <d:integer> <mn:identifier> <mx:identifier> <mut o:comp_opts>
+    => set_opt!(o,routehalo,(d, mn, mx)),
+  "+" "MASKSHIFT" <m:integer> <mut o:comp_opts> => set_opt!(o,maskshift,m),
+  "+" "PROPERTY" <pl:property+> <mut o:comp_opts>
+    => set_opt!(o,properties,pl),
+  () => ComponentOpts::default(),
+}
+
+component: Component = {
+  "-" <name:identifier> <model:identifier> <opts:comp_opts> semicolon
+    => Component::new(name, model, opts),
+}
+
+component_list: Vec<Component> = {
+  <c:component> <mut l:component_list> => { l.push(c); l },
+  <c:component> => vec![c],
+}
+
+components: Vec<Component> = {
+  "COMPONENTS" <n:integer> semicolon <cl:component_list> "END" "COMPONENTS"
+    => cl,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  PINS Section                                                              //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+pin_direction: PinDirection = {
+  "INPUT" => PinDirection::INPUT,
+  "OUTPUT" => PinDirection::OUTPUT,
+  "INOUT" => PinDirection::INOUT,
+  "FEEDTHRU" => PinDirection::FEEDTHRU,
+}
+
+pin_use: PinUse = {
+  "SIGNAL" => PinUse::SIGNAL,
+  "POWER" => PinUse::POWER,
+  "GROUND" => PinUse::GROUND,
+  "CLOCK" => PinUse::CLOCK,
+  "TIEOFF" => PinUse::TIEOFF,
+  "ANALOG" => PinUse::ANALOG,
+  "SCAN" => PinUse::SCAN,
+  "RESET" => PinUse::RESET,
+}
+
+pin_placement: PinPlacement = {
+  "PLACED" => PinPlacement::PLACED,
+  "FIXED" => PinPlacement::FIXED,
+  "COVER" => PinPlacement::COVER,
+}
+
+pin_port_body: PinPort = {
+  "LAYER" <l:identifier> "MASK" <m:integer> <rl:rect_list>
+    => PinPort { layer: Some(l), rects: Some(rl), polygons: None, vias: None, mask: Some(m) },
+  "LAYER" <l:identifier> <rl:rect_list>
+    => PinPort { layer: Some(l), rects: Some(rl), polygons: None, vias: None, mask: None },
+  "POLYGON" <pl:polygon>
+    => PinPort { layer: None, rects: None, polygons: Some(vec![pl]), vias: None, mask: None },
+}
+
+pin_port: PinPort = {
+  "+" <p:pin_port_body> => p,
+}
+
+// TODO: find fix to allow multiple values 
+pin_opt_port: PinOptsEnum = {
+  "+" "PORT" <ppl:pin_port>
+    => PinOptsEnum::Ports(vec![ppl]),
+  <ppl:pin_port>
+    => PinOptsEnum::Ports(vec![ppl]),
+}
+
+pin_opt: PinOptsEnum = {
+  "+" "DIRECTION" <d:pin_direction>
+    => PinOptsEnum::Direction(d),
+  "+" "USE" <u:pin_use>
+    => PinOptsEnum::Use(u),
+  "+" "NETEXPR" <n:string>
+    => PinOptsEnum::NetExpr(n),
+  "+" "SUPPLYSENSITIVITY" <s:identifier>
+    => PinOptsEnum::SupplySensitivity(s),
+  "+" "GROUNDSENSITIVITY" <g:identifier>
+    => PinOptsEnum::GroundSensitivity(g),
+  "+" <p:pin_placement> <pt:point> <or:orient>
+    => PinOptsEnum::Placement(PinOptPlacement::new(p, pt, or)),
+  <ports:pin_opt_port> => ports,
+  "+" "PROPERTY" <pl:property+>
+    => PinOptsEnum::Properties(pl),
+}
+
+pin_opts: PinOpts = {
+  <opts:pin_opt*> => {
+    let mut o = PinOpts::default();
+    for opt in opts {
+      o.apply(opt);
+    }
+    o
+  }
+}
+
+pin: Pin = {
+  "-" <name:identifier> "+" "NET" <net:identifier> "+" "SPECIAL" <opts:pin_opts> semicolon
+    => Pin::new(name, net, true, opts),
+  "-" <name:identifier> "+" "NET" <net:identifier> <opts:pin_opts> semicolon
+    => Pin::new(name, net, false, opts),
+}
+
+pins: Vec<Pin> = {
+  "PINS" <n:integer> semicolon <pl:pin*> "END" "PINS" => pl,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  PINPROPERTIES Section                                                     //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+pinproperty: PinProperty = {
+  "-" <comp:identifier> <pin:identifier> "+" "PROPERTY" <pl:property+> semicolon
+    => PinProperty { comp_name: comp, pin_name: pin, properties: pl },
+}
+
+pinproperties: Vec<PinProperty> = {
+  "PINPROPERTIES" <n:integer> semicolon <pl:pinproperty+> "END" "PINPROPERTIES" => pl,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  BLOCKAGES Section                                                         //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+blockage_placement_component: String = {
+  "COMPONENT" <c:identifier> => c,
+}
+
+blockage_placement_pushdown: bool = {
+  "PUSHDOWN" => true, 
+}
+
+blockage_placement_type: BlockagePlacementType= {
+  "SOFT" => BlockagePlacementType::SOFT, 
+  "PARTIAL" <density:real> => BlockagePlacementType::PARTIAL(density), 
+}
+
+blockage_placement: BlockagePlacement = {
+  "-" "PLACEMENT" <t:blockage_placement_type?>
+    <p:blockage_placement_pushdown?> 
+    <c:blockage_placement_component?> 
+    "RECT" <rl:rect_list> semicolon
+    => BlockagePlacement { component: c, pushdown: p, blockage_type: t, rects: rl },
+}
+
+blockage_routing: BlockageRouting = {
+  "-" "LAYER" <l:identifier> "MASK" <m:integer> "SLOTS" <rl:rect_list> semicolon
+    => BlockageRouting { layer: l, component: None, slots: Some(true), fills: None, pushdown: None, exceptpgnet: None, spacing: None, designrulewidth: None, mask: Some(m), rects: rl, polygons: None },
+  "-" "LAYER" <l:identifier> "FILLS" <rl:rect_list> semicolon
+    => BlockageRouting { layer: l, component: None, slots: None, fills: Some(true), pushdown: None, exceptpgnet: None, spacing: None, designrulewidth: None, mask: None, rects: rl, polygons: None },
+  "-" "LAYER" <l:identifier> <rl:rect_list> semicolon
+    => BlockageRouting { layer: l, component: None, slots: None, fills: None, pushdown: None, exceptpgnet: None, spacing: None, designrulewidth: None, mask: None, rects: rl, polygons: None },
+}
+
+blockage: Blockage = {
+  <bp:blockage_placement> => Blockage::Placement(bp),
+  <br:blockage_routing> => Blockage::Routing(br),
+}
+
+blockages: Vec<Blockage> = {
+  "BLOCKAGES" <n:integer> semicolon <bl:blockage*> "END" "BLOCKAGES" => bl,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  SLOTS Section                                                             //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+slot: Slot = {
+  "-" "LAYER" <l:identifier> <rl:rect_list> semicolon
+    => Slot { layer: l, rects: rl, polygons: None },
+}
+
+slot_list: Vec<Slot> = {
+  <s:slot> <mut l:slot_list> => { l.push(s); l },
+  <s:slot> => vec![s],
+}
+
+slots: Vec<Slot> = {
+  "SLOTS" <n:integer> semicolon <sl:slot_list> "END" "SLOTS" => sl,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  FILLS Section                                                             //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+fill_rect: FillRect = {
+  "-" "LAYER" <l:identifier> "MASK" <m:integer> "OPC" <rl:rect_list> semicolon
+    => FillRect { layer: l, mask: Some(m), opc: Some(true), rects: rl },
+  "-" "LAYER" <l:identifier> <rl:rect_list> semicolon
+    => FillRect { layer: l, mask: None, opc: None, rects: rl },
+}
+
+fill_via: FillVia = {
+  "-" "VIA" "MASK" <m:integer> "OPC" <v:identifier> <pl:point_list> semicolon
+    => FillVia { mask: Some(m), opc: Some(true), via: v, points: pl },
+  "-" "VIA" <v:identifier> <pl:point_list> semicolon
+    => FillVia { mask: None, opc: None, via: v, points: pl },
+}
+
+fill: Fill = {
+  <fr:fill_rect> => Fill::Rect(fr),
+  <fv:fill_via> => Fill::Via(fv),
+}
+
+fill_list: Vec<Fill> = {
+  <f:fill> <mut l:fill_list> => { l.push(f); l },
+  <f:fill> => vec![f],
+}
+
+fills: Vec<Fill> = {
+  "FILLS" <n:integer> semicolon <fl:fill_list> "END" "FILLS" => fl,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  SPECIALNETS Section                                                       //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  Routing Points for Special Wiring                                         //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+routing_via: RoutingVia = {
+    <m:mask_no_semicolon?> <v:identifier> <o:orient?> 
+    <dsb:do_step_by?>
+    => RoutingVia {
+        via_name: v,
+        orient: o,
+        mask: m,
+        do_step_by: dsb,
+    },
+}
+
+routing_point_item: RoutingPointItem = {
+    <p:point> => RoutingPointItem::Point(p, None),
+    <v:routing_via> => RoutingPointItem::Via(v),
+
+    // TODO: implement the rest
+    // "MASK" <m:integer> <p:point> => RoutingPointItem::Point(p, Some(m)),
+    // <p:point> => RoutingPointItem::Point(p, None),
+}
+
+routing_points: Vec<RoutingPointItem> = {
+    <p:routing_point_item+> => p,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  Special Wiring for SPECIALNETS                                            //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+special_wire_type: SpecialWireType = {
+  "COVER" => SpecialWireType::COVER,
+  "FIXED" => SpecialWireType::FIXED,
+  "ROUTED" => SpecialWireType::ROUTED,
+  "SHIELD" <n:identifier> => SpecialWireType::SHIELD(n),
+}
+
+special_wire_shape: SpecialWireShape = {
+  "RING" => SpecialWireShape::RING,
+  "PADRING" => SpecialWireShape::PADRING,
+  "BLOCKRING" => SpecialWireShape::BLOCKRING,
+  "STRIPE" => SpecialWireShape::STRIPE,
+  "FOLLOWPIN" => SpecialWireShape::FOLLOWPIN,
+  "IOWIRE" => SpecialWireShape::IOWIRE,
+  "COREWIRE" => SpecialWireShape::COREWIRE,
+  "BLOCKWIRE" => SpecialWireShape::BLOCKWIRE,
+  "BLOCKAGEWIRE" => SpecialWireShape::BLOCKAGEWIRE,
+  "FILLWIRE" => SpecialWireShape::FILLWIRE,
+  "FILLWIREOPC" => SpecialWireShape::FILLWIREOPC,
+  "DRCFILL" => SpecialWireShape::DRCFILL,
+}
+
+special_net_source: SpecialNetSource = {
+  "DIST" => SpecialNetSource::DIST,
+  "NETLIST" => SpecialNetSource::NETLIST,
+  "TIMING" => SpecialNetSource::TIMING,
+  "USER" => SpecialNetSource::USER,
+}
+
+special_net_use: SpecialNetUse = {
+  "ANALOG" => SpecialNetUse::ANALOG,
+  "CLOCK" => SpecialNetUse::CLOCK,
+  "GROUND" => SpecialNetUse::GROUND,
+  "POWER" => SpecialNetUse::POWER,
+  "RESET" => SpecialNetUse::RESET,
+  "SCAN" => SpecialNetUse::SCAN,
+  "SIGNAL" => SpecialNetUse::SIGNAL,
+  "TIEOFF" => SpecialNetUse::TIEOFF,
+}
+
+special_net_pattern: SpecialNetPattern = {
+  "BALANCED" => SpecialNetPattern::BALANCED,
+  "STEINER" => SpecialNetPattern::STEINER,
+  "TRUNK" => SpecialNetPattern::TRUNK,
+  "WIREDLOGIC" => SpecialNetPattern::WIREDLOGIC,
+}
+
+// Geometry-based wiring (first syntax pattern)
+special_wire_polygon_geom: SpecialWireSegment = {
+  "+" "SHAPE" <s:special_wire_shape> "+" "MASK" <m:integer> "+" "POLYGON" <layer:identifier> <pts:point_list>
+    => SpecialWireSegment::Polygon(SpecialWirePolygonGeom { 
+      layer, points: pts, shape: Some(s), mask: Some(m) 
+    }),
+}
+
+special_wire_rect_geom: SpecialWireSegment = {
+  "+" "SHAPE" <s:special_wire_shape> "+" "MASK" <m:integer> "+" "RECT" <layer:identifier> <pt1:point> <pt2:point>
+    => SpecialWireSegment::Rect(SpecialWireRectGeom { 
+      layer, pt1, pt2, shape: Some(s), mask: Some(m)
+    }),
+  "+" "SHAPE" <s:special_wire_shape> "+" "RECT" <layer:identifier> <pt1:point> <pt2:point>
+    => SpecialWireSegment::Rect(SpecialWireRectGeom { 
+      layer, pt1, pt2, shape: Some(s), mask: None 
+    }),
+  "+" "MASK" <m:integer> "+" "RECT" <layer:identifier> <pt1:point> <pt2:point>
+    => SpecialWireSegment::Rect(SpecialWireRectGeom { 
+      layer, pt1, pt2, shape: None, mask: Some(m) 
+    }),
+  "+" "RECT" <layer:identifier> <pt1:point> <pt2:point>
+    => SpecialWireSegment::Rect(SpecialWireRectGeom { 
+      layer, pt1, pt2, shape: None, mask: None 
+    }),
+}
+
+special_wire_via_geom: SpecialWireSegment = {
+  "+" "SHAPE" <s:special_wire_shape> "+" "MASK" <m:integer> "+" "VIA" <via:identifier> <o:orient?> <pts:point_list>
+    => SpecialWireSegment::Via(SpecialWireViaGeom { 
+      via, orient: o, points: pts, shape: Some(s), mask: Some(m) 
+    }),
+  "+" "SHAPE" <s:special_wire_shape> "+" "VIA" <via:identifier> <o:orient?> <pts:point_list>
+    => SpecialWireSegment::Via(SpecialWireViaGeom { 
+      via, orient: o, points: pts, shape: Some(s), mask: None 
+    }),
+  "+" "MASK" <m:integer> "+" "VIA" <via:identifier> <o:orient?> <pts:point_list>
+    => SpecialWireSegment::Via(SpecialWireViaGeom { 
+      via, orient: o, points: pts, shape: None, mask: Some(m) 
+    }),
+  "+" "VIA" <via:identifier> <o:orient?> <pts:point_list>
+    => SpecialWireSegment::Via(SpecialWireViaGeom { 
+      via, orient: o, points: pts, shape: None, mask: None 
+    }),
+}
+
+special_wire_path_segment: SpecialWireSegment = {
+  <layer:identifier> <width:integer> 
+    "+" "SHAPE" <s:special_wire_shape> "+" "STYLE" <st:integer> <pts:routing_points>
+    => SpecialWireSegment::Path(SpecialWirePathSegment { 
+      layer, width, shape: Some(s), style: Some(st), points: pts 
+    }),
+  <layer:identifier> <width:integer> 
+    "+" "SHAPE" <s:special_wire_shape> <pts:routing_points>
+    => SpecialWireSegment::Path(SpecialWirePathSegment { 
+      layer, width, shape: Some(s), style: None, points: pts 
+    }),
+  <layer:identifier> <width:integer> 
+    "+" "STYLE" <st:integer> <pts:routing_points>
+    => SpecialWireSegment::Path(SpecialWirePathSegment { 
+      layer, width, shape: None, style: Some(st), points: pts 
+    }),
+  <layer:identifier> <width:integer> <pts:routing_points>
+    => SpecialWireSegment::Path(SpecialWirePathSegment { 
+      layer, width, shape: None, style: None, points: pts 
+    }),
+}
+
+special_wire_segment: SpecialWireSegment = {
+  special_wire_polygon_geom,
+  special_wire_rect_geom,
+  special_wire_via_geom,
+  special_wire_path_segment,
+}
+
+special_wire_segments: Vec<SpecialWireSegment> = {
+  <s:special_wire_segment> "NEW" <mut l:special_wire_segments> => { l.push(s); l },
+  <s:special_wire_segment> => vec![s],
+}
+
+special_wiring: SpecialWiring = {
+  "+" <wt:special_wire_type> <segs:special_wire_segments>
+    => SpecialWiring { wire_type: wt, segments: segs },
+}
+
+special_net_opts: SpecialNetOpts = {
+  "+" "VOLTAGE" <v:real> <mut o:special_net_opts> => set_opt!(o,voltage,v),
+  <wl:special_wiring> <mut o:special_net_opts> => vec_push![o, wires, wl],
+  "+" "SOURCE" <s:special_net_source> <mut o:special_net_opts> => set_opt!(o,source,s),
+  "+" "FIXEDBUMP" <mut o:special_net_opts> => set_opt!(o,fixedbump,true),
+  "+" "ORIGINAL" <or:identifier> <mut o:special_net_opts>
+    => set_opt!(o,original,or),
+  "+" "USE" <u:special_net_use> <mut o:special_net_opts> => set_opt!(o,use_type,u),
+  "+" "PATTERN" <p:special_net_pattern> <mut o:special_net_opts> => set_opt!(o,pattern,p),
+  "+" "ESTCAP" <e:real> <mut o:special_net_opts> => set_opt!(o,estcap,e),
+  "+" "WEIGHT" <w:integer> <mut o:special_net_opts> => set_opt!(o,weight,w),
+  "+" "PROPERTY" <pl:property+> <mut o:special_net_opts>
+    => set_opt!(o,properties,pl),
+  () => SpecialNetOpts::default(),
+  ! => panic_with_context!("error parsing special net", <>),
+}
+
+connection: (String, String) = {
+  "(" <c:pattern_match> <p:pin_name> ")" => (c, p),
+  "(" <c:identifier> <p:pin_name> ")" => (c, p),
+  "(" "PIN" <p:pin_name> ")" => ("PIN".to_string(), p),
+}
+
+connection_list: Vec<(String, String)> = {
+  <c:connection+> => c,
+}
+
+special_net: SpecialNet = {
+  "-" <name:identifier> <cl:connection_list?> <opts:special_net_opts> semicolon
+    => SpecialNet { name, opts: SpecialNetOpts { connections: cl, ..opts } },
+}
+
+specialnets: Vec<SpecialNet> = {
+  "SPECIALNETS" <n:integer> semicolon <snl:special_net*> "END" "SPECIALNETS"
+    => snl,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  NETS Section                                                              //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+net_source: NetSource = {
+  "NETLIST" => NetSource::NETLIST,
+  "DIST" => NetSource::DIST,
+  "USER" => NetSource::USER,
+  "TIMING" => NetSource::TIMING,
+  "TEST" => NetSource::TEST,
+}
+
+net_use: NetUse = {
+  "ANALOG" => NetUse::ANALOG,
+  "CLOCK" => NetUse::CLOCK,
+  "GROUND" => NetUse::GROUND,
+  "POWER" => NetUse::POWER,
+  "RESET" => NetUse::RESET,
+  "SCAN" => NetUse::SCAN,
+  "SIGNAL" => NetUse::SIGNAL,
+  "TIEOFF" => NetUse::TIEOFF,
+}
+
+net_opts: NetOpts = {
+  "+" "SOURCE" <s:net_source> <mut o:net_opts> => set_opt!(o,source,s),
+  "+" "FIXEDBUMP" <mut o:net_opts> => set_opt!(o,fixedbump,true),
+  "+" "FREQUENCY" <f:real> <mut o:net_opts> => set_opt!(o,frequency,f),
+  "+" "ORIGINAL" <or:identifier> <mut o:net_opts> => set_opt!(o,original,or),
+  "+" "USE" <u:net_use> <mut o:net_opts> => set_opt!(o,use_type,u),
+  "+" "PATTERN" <p:identifier> <mut o:net_opts> => set_opt!(o,pattern,p),
+  "+" "ESTCAP" <e:real> <mut o:net_opts> => set_opt!(o,estcap,e),
+  "+" "WEIGHT" <w:integer> <mut o:net_opts> => set_opt!(o,weight,w),
+  "+" "XTALK" <x:integer> <mut o:net_opts> => set_opt!(o,xtalk,x),
+  "+" "NONDEFAULTRULE" <n:identifier> <mut o:net_opts>
+    => set_opt!(o,nondefaultrule,n),
+  "+" "PROPERTY" <pl:property+> <mut o:net_opts>
+    => set_opt!(o,properties,pl),
+  () => NetOpts::default(),
+}
+
+net: Net = {
+  "-" <name:identifier> <cl:connection_list> <opts:net_opts> semicolon
+    => Net { name, opts: NetOpts { connections: Some(cl), ..opts } },
+}
+
+nets: Vec<Net> = {
+  "NETS" <n:integer> semicolon <nl:net*> "END" "NETS" => nl,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  SCANCHAINS Section                                                        //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+scanchain_pin: ScanChainPin = {
+  <c:identifier> <p:identifier> => ScanChainPin { comp: c, pin: p },
+}
+
+scanchain_pin_list: Vec<ScanChainPin> = {
+  <p:scanchain_pin> <mut l:scanchain_pin_list> => { l.push(p); l },
+  <p:scanchain_pin> => vec![p],
+}
+
+scanchain_direction: ScanChainDirection = {
+  "IN" => ScanChainDirection::IN,
+  "OUT" => ScanChainDirection::OUT,
+}
+
+scanchain_commonpin: (ScanChainDirection, String) = {
+  "(" <d:scanchain_direction> <p:identifier> ")" => (d, p),
+}
+
+scanchain_commonpin_list: Vec<(ScanChainDirection, String)> = {
+  <c:scanchain_commonpin> <mut l:scanchain_commonpin_list> => { l.push(c); l },
+  <c:scanchain_commonpin> => vec![c],
+}
+
+scanchain: ScanChain = {
+  "-" <name:identifier> 
+    "+" "START" <start:scanchain_pin>
+    "+" "STOP" <stop:scanchain_pin>
+    "+" "FLOATING" <fl:scanchain_pin_list>
+    "+" "ORDERED" <ol:scanchain_pin_list>
+    "+" "COMMONSCANPINS" <cpl:scanchain_commonpin_list>
+    "+" "PARTITION" <part:identifier> "MAXBITS" <mb:integer> semicolon
+    => ScanChain {
+      name,
+      start: Some(start),
+      stop: Some(stop),
+      floating: Some(fl),
+      ordered: Some(ol),
+      commonscanpins: Some(cpl),
+      partition: Some((part, Some(mb))),
+    },
+  "-" <name:identifier> semicolon
+    => ScanChain {
+      name,
+      start: None,
+      stop: None,
+      floating: None,
+      ordered: None,
+      commonscanpins: None,
+      partition: None,
+    },
+}
+
+scanchain_list: Vec<ScanChain> = {
+  <s:scanchain> <mut l:scanchain_list> => { l.push(s); l },
+  <s:scanchain> => vec![s],
+}
+
+scanchains: Vec<ScanChain> = {
+  "SCANCHAINS" <n:integer> semicolon <sl:scanchain_list> "END" "SCANCHAINS" => sl,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  GROUPS Section                                                            //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+comp_name: String = {
+  <c:identifier> => c,
+}
+
+group_region: String = {
+ "+" "REGION" <r:identifier> => r,
+}
+
+group_property: Property = {
+  "+" "PROPERTY" <pl:property> => pl,
+}
+
+group: Group = {
+  "-" <name:identifier> <cl:comp_name+> <r:group_region?>
+     <pl:group_property+?> semicolon
+    => Group { name, components: cl, region: r, properties: pl },
+}
+
+groups: Vec<Group> = {
+  "GROUPS" <n:integer> semicolon <gl:group*> "END" "GROUPS" => gl,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  SITES Section                                                            //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+site: Site = {
+  "SITE" <n:identifier> <w:real> <h:real> <o:orient?> <dsb:do_step_by?> semicolon
+  => Site::new(n,Size::new(w,h),o,dsb)
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  BEGINEXT Section                                                          //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+extension_line: String = {
+  <s:identifier> => s,
+}
+
+extension: Extension = {
+  "BEGINEXT" <tag:string> <content:extension_line+> "ENDEXT" semicolon
+    => Extension { tag, content },
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  Main Body                                                                 //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+body: DEF = {
+  <v:version> <mut d:body> => set_opt!(d,version,v),
+  <dc:dividerchar> <mut d:body> => set_opt!(d,dividerchar,dc),
+  <bbc:busbitchars> <mut d:body> => set_opt!(d,busbitchars,bbc),
+  <n:design_name> <mut d:body> => set_opt!(d,design_name,n),
+  <t:technology> <mut d:body> => set_opt!(d,technology,t),
+  <u:units> <mut d:body> => set_opt!(d,units,u),
+  <h:history> <mut d:body> => vec_push!(d,history,h),
+  <pd:propertydefinitions> <mut d:body> => set_opt!(d,propertydefinitions,pd),
+  <da:diearea> <mut d:body> => set_opt!(d,diearea,da),
+  <r:row> <mut d:body> => vec_push![d, rows, r],
+  <t:tracks> <mut d:body> => vec_push![d, tracks, t],
+  <g:gcellgrid> <mut d:body> => vec_push![d, gcellgrids, g],
+  <v:vias> <mut d:body> => set_opt!(d,vias,v),
+  <s:styles> <mut d:body> => set_opt!(d,styles,s),
+  <ndr:nondefaultrules> <mut d:body> => set_opt!(d,nondefaultrules,ndr),
+  <reg:regions> <mut d:body> => set_opt!(d,regions,reg),
+  <cms:componentmaskshift> <mut d:body> => set_opt!(d,componentmaskshift,cms),
+  <c:components> <mut d:body> => set_opt!(d,components,c),
+  <p:pins> <mut d:body> => set_opt!(d,pins,p),
+  <pp:pinproperties> <mut d:body> => set_opt!(d,pinproperties,pp),
+  <b:blockages> <mut d:body> => set_opt!(d,blockages,b),
+  <sl:slots> <mut d:body> => set_opt!(d,slots,sl),
+  <fl:fills> <mut d:body> => set_opt!(d,fills,fl),
+  <sn:specialnets> <mut d:body> => set_opt!(d,specialnets,sn),
+  <n:nets> <mut d:body> => set_opt!(d,nets,n),
+  <sc:scanchains> <mut d:body> => set_opt!(d,scanchains,sc),
+  <g:groups> <mut d:body> => set_opt!(d,groups,g),
+  <s:site> <mut d:body> => vec_push![d, sites, s],
+  <el:extension> <mut d:body> => vec_push![d, extensions, el],
+  () => DEF::default(),
+  ! => panic!("[x] error parsing DEF body: {:?} {:?}", <>.error, <>.dropped_tokens.into_iter().take(10).collect::<Vec<_>>()),
+};
+
+pub def: DEF = {
+  comment <d:def> => d,
+  <b:body> "END" "DESIGN" => b,
+};

@@ -1,0 +1,2225 @@
+use std::str::FromStr;
+use crate::common_handler::*;
+use crate::lef_handler::*;
+use crate::vec_push;
+use crate::set_opt;
+use crate::panic_with_context;
+
+grammar;
+
+// https://coriolis.lip6.fr/doc/lefdef/lefdefref/LEFSyntax.html
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  Util                                                                      //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+// match {
+//     r#"[\w]+"#
+//     r#"[\w][\d]+"#
+// } else {
+//     r#"[^"^\s^\t^\n^#^(][^\s^\t^\n^#]+"#,
+//     _
+// }
+
+identifier: String = {
+    r#"[^"^\s^\t^\n^#^(][^\s^\t^\n^#]+"# => <>.to_string(),
+    r#"[\w]"# => <>.to_string(),
+    // compile time really slow with size bound ... :(
+    // r#"[^"^\s^\t^\n][^\s^\t^\n]{0,2048}"# => <>.to_string(),
+    // possible bug in LALRPOP .. or maybe not .. something to do with the lexer
+    "TYPE" => <>.to_string(),
+    "type" => <>.to_string(),
+    "OVERLAP" => <>.to_string(),
+    "overlap" => <>.to_string(),
+    "DEFAULT" => <>.to_string(),
+    "default" => <>.to_string(),
+    "CORE" => <>.to_string(),
+    "core" => <>.to_string(),
+    "PAD" => <>.to_string(),
+    "pad" => <>.to_string(),
+    "COVER" => <>.to_string(),
+    "cover" => <>.to_string(),
+    "END" => <>.to_string(),
+    "end" => <>.to_string(),
+    "CLOCK" => <>.to_string(),
+    "clock" => <>.to_string(),
+    "Y" => <>.to_string(),
+    "B" => <>.to_string(),
+    "A" => <>.to_string(),
+    "x" => <>.to_string(),
+    "N" => <>.to_string(),
+    "S" => <>.to_string(),
+    "E" => <>.to_string(),
+    "W" => <>.to_string(),
+    "FN" => <>.to_string(),
+    "FS" => <>.to_string(),
+    "FE" => <>.to_string(),
+    "FW" => <>.to_string(),
+};
+
+integer: i32 = {
+  "0" => 0,
+  "1" => 1,
+  "2" => 2,
+  "3" => 3,
+  "4" => 4,
+  "5" => 5,
+  "6" => 6,
+  "7" => 7,
+  "8" => 8,
+  "9" => 9,
+  <i:identifier> => i32::from_str(&i).unwrap_or_else(|_| panic!("'{}' is not an integer", &i)),
+};
+
+real: f32 = {
+  "0" => 0.0,
+  "1" => 1.0,
+  "2" => 2.0,
+  "3" => 3.0,
+  "4" => 4.0,
+  "5" => 5.0,
+  "6" => 6.0,
+  "7" => 7.0,
+  "8" => 8.0,
+  "9" => 9.0,
+  <i:identifier> => f32::from_str(&i).unwrap_or_else(|_| panic!("'{}' is not an float", &i)),
+};
+
+string: String = {
+  <r#"\"[\w\d\n\s\-\[\];'\\,\./~!@#$%^&\*\(\)_\+{}:|<>\?]*\""#> => <>.to_string(),
+};
+
+real_pair: (f32, f32) = {
+  "(" <n1:real> <n2:real> ")" => (n1,n2)
+};
+
+real_pair_list_: Vec<(f32, f32)> = {
+  <mut l:real_pair_list_> <p:real_pair>  
+    => { l.push(p); l },
+  <p:real_pair> => vec![p]
+};
+
+real_pair_list: Vec<(f32, f32)> = {
+  "(" <real_pair_list_> ")" => <>
+}
+
+real_list: Vec<f32> = {
+  <n:real> <mut l:real_list> 
+    => { l.push(n); l },
+  <n:real> => vec![n]
+};
+
+semicolon: () = {
+  ";" comment_opt
+};
+
+newline: () = {
+  "\n",
+}
+
+end: () = {
+  "END" comment_opt,
+  "END" newline,
+}
+end_name: String = {
+  "END" <n:identifier> comment_opt => <>,
+  "END" <n:identifier> newline => <>,
+}
+
+comment: () = {
+  r"#.*\n",
+};
+comment_opt: () = {
+  comment comment_opt,
+  comment newline comment_opt,
+  ()
+};
+
+width: f32 = {
+  "WIDTH" <n:real> => n
+};
+
+value: Value = {
+  real => Value::NUMBER(<>),
+  string => Value::STRING(<>),
+};
+
+mask: i32 = {
+  "MASK" <n:integer> semicolon => n
+};
+
+mask_no_semicolon: i32 = {
+  "MASK" <n:integer> => n
+};
+
+mask_no_semicolon_opt: Option<i32> = {
+  "MASK" <n:integer> => Some(n),
+  () => None,
+};
+
+property_name_value_list: Vec<NameValue> = {
+  <mut l:property_name_value_list> <i:identifier> <v:value>  => { l.push(NameValue::new(i,v)); l },
+  <i:identifier> <v:value> => vec![NameValue::new(i,v)],
+};
+
+property: Property = {
+  "PROPERTY" <l:property_name_value_list> semicolon
+    => Property::new(l),
+};
+property_list: Vec<Property> = {
+  <v:property> <mut l:property_list> => { l.push(v); l },
+  <v:property> => vec![v],
+};
+property_list_opt: Option<Vec<Property>> = {
+  <l:property_list> => Some(l),
+  () => None,
+};
+
+resistance: f32 = {
+  "RESISTANCE" <n:real> semicolon => n
+};
+resistance_opt: Option<f32> = {
+  resistance => Some(<>),
+  () => None,
+};
+
+pwl: PieceWiseLinear = {
+  real => PieceWiseLinear::REAL(<>),
+  "PWL" <l:real_pair_list> => PieceWiseLinear::PWL(l),
+};
+
+range_no_semicolon: Range<f32> = {
+  "RANGE" <min:real> <max:real> => (min,max),
+}
+range_no_semicolon_opt: Option<Range<f32>> = {
+  range_no_semicolon => Some(<>),
+  () => None,
+}
+
+tristate: bool = {
+  "TRISTATE" => true,
+};
+exceptpgnet : bool = {
+  "EXCEPTPGNET" => true,
+  () => false,
+};
+simple_spacing_no_semicolon: f32 = {
+  "SPACING" <v:real> => v,
+};
+simple_spacing: f32 = {
+  <v:simple_spacing_no_semicolon> semicolon => v,
+};
+designrulewidth_no_semicolon: f32 = {
+  "DESIGNRULEWIDTH" <v:real> => v,
+};
+designrulewidth: f32 = {
+  <v:designrulewidth_no_semicolon> semicolon => v,
+};
+point_orient_no_semicolon: PointOrient = {
+  "(" <x:real> <y:real> ")" <o:orient_opt> 
+    => Point::new(x,y,o),
+  <x:real> <y:real> <o:orient_opt> 
+    => Point::new(x,y,o),
+}
+point_orient: PointOrient = {
+  <p:point_orient_no_semicolon> semicolon => p,
+}
+point_orient_list: Vec<PointOrient> = {
+  <v:point_orient> <mut l:point_orient_list> => { l.push(v); l },
+  <v:point_orient> => vec![v],
+  () => vec![],
+}
+// TODO: point needs semicolon in some cases ???
+point: Point = {
+  "(" <x:real> <y:real> ")" 
+    => Point::new(x,y,None),
+   <x:real> <y:real> 
+    => Point::new(x,y,None),
+}
+point_list: Vec<Point> = {
+  <v:point> <mut l:point_list> => { l.push(v); l },
+  <v:point> => vec![v],
+}
+rect: (Point,Point) = {
+  <p1:point> <p2:point>
+    => (p1,p2)
+}
+// [DO xCount BY yCount STEP xStep yStep] 
+step_pattern: StepPattern = {
+  "DO" <x:integer> "BY" <y:integer> 
+    "STEP" <xs:real> <ys:real>
+    => StepPattern::new(x,y,xs,ys),
+}
+step_pattern_opt: Option<StepPattern> = {
+  step_pattern => Some(<>),
+  () => None,
+}
+// [xOrigin yOrigin siteOrient [stepPattern]]
+site_pattern: SitePattern = {
+  <x:real> <y:real> <o:orient> <s:step_pattern_opt>
+    => SitePattern::new(x,y,o,s),
+}
+
+orient: Orient = {
+  "N" => Orient::N,
+  "S" => Orient::S,
+  "E" => Orient::E,
+  "W" => Orient::W,
+  "FN" => Orient::FN,
+  "FS" => Orient::FS,
+  "FE" => Orient::FE,
+  "FW" => Orient::FW,
+}
+orient_opt: Option<Orient> = {
+  <o:orient> => Some(o),
+  () => None,
+}
+
+default: bool = {
+  "DEFAULT" => true,
+  () => false,
+}
+
+generated: bool = {
+  "GENERATED" => true,
+  () => false,
+}
+
+generate: bool = {
+  "GENERATE" => true,
+  () => false,
+}
+
+topofstackonly: bool = {
+  "TOPOFSTACKONLY" => true,
+  () => false,
+}
+
+mincuts: MinCut = {
+  "MINCUTS" <n:identifier> <nn:integer> semicolon => MinCut::new(n,nn),
+}
+
+on_off: OnOff = {
+  "ON" => OnOff::ON,
+  "OFF" => OnOff::OFF,
+};
+
+centertocenter: bool = {
+  "CENTERTOCENTER" => true,
+  () => false,
+};
+samenet: bool = {
+  "SAMENET" => true,
+  () => false,
+};
+
+symmetry_enum: Symmetry = {
+  "X" => Symmetry::X,
+  "x" => Symmetry::X,
+  "Y" => Symmetry::Y,
+  "y" => Symmetry::Y,
+  "R90" => Symmetry::R90,
+  "r90" => Symmetry::R90,
+}
+symmetry_list: Vec<Symmetry> = {
+  <v:symmetry_enum> <mut l:symmetry_list>
+    => { l.push(v); l },
+  <v:symmetry_enum> => vec![v],
+}
+symmetry: Vec<Symmetry> = {
+  "SYMMETRY" <l:symmetry_list> semicolon => l
+}
+symmetry_opt: Option<Vec<Symmetry>> = {
+  <v:symmetry> => Some(v),
+  () => None,
+}
+
+rowpattern_: RowPattern = {
+  <i:identifier> <o:orient> => RowPattern::new(i,o),
+}
+rowpattern_list: Vec<RowPattern> = {
+  <v:rowpattern_> <mut l:rowpattern_list>
+    => { l.push(v); l },
+  <v:rowpattern_> => vec![v],
+}
+rowpattern: Vec<RowPattern> = {
+  "ROWPATTERN" <l:rowpattern_list> semicolon => l
+}
+rowpattern_opt: Option<Vec<RowPattern>> = {
+  <v:rowpattern> => Some(v),
+  () => None,
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+antennamodel_type: AntennaModelType = {
+  "OXIDE1" => AntennaModelType::OXIDE1,
+  "OXIDE2" => AntennaModelType::OXIDE2,
+  "OXIDE3" => AntennaModelType::OXIDE3,
+  "OXIDE4" => AntennaModelType::OXIDE4,
+};
+antennamodel: AntennaModel = {
+  "ANTENNAMODEL" <t:antennamodel_type> semicolon
+    => AntennaModel::new(t),
+};
+
+antennapartialmetalarea: AntennaPartialMetalArea = {
+  "ANTENNAPARTIALMETALAREA" <v:real> <l:layer_name_opt> semicolon
+    => AntennaPartialMetalArea::new(v,l),
+}
+antennapartialmetalsidearea: AntennaPartialMetalSideArea = {
+  "ANTENNAPARTIALMETALSIDEAREA" <v:real> <l:layer_name_opt> semicolon
+    => AntennaPartialMetalSideArea::new(v,l),
+}
+antennapartialcutarea: AntennaPartialCutArea = {
+  "ANTENNAPARTIALCUTAREA" <v:real> <l:layer_name_opt> semicolon 
+    => AntennaPartialCutArea::new(v,l),
+}
+antennadiffarea: AntennaDiffArea = {
+  "ANTENNADIFFAREA" <v:real> <l:layer_name_opt> semicolon 
+    => AntennaDiffArea::new(v,l),
+}
+antennagatearea: AntennaGateArea = {
+  "ANTENNAGATEAREA" <v:real> <l:layer_name_opt> semicolon 
+    => AntennaGateArea::new(v,l),
+}
+antennamaxareacar: AntennaMaxAreaCar = {
+  "ANTENNAMAXAREACAR" <v:real> <l:layer_name> semicolon 
+    => AntennaMaxAreaCar::new(v,l),
+}
+antennamaxsideareacar: AntennaMaxSideAreaCar = {
+  "ANTENNAMAXSIDEAREACAR" <v:real> <l:layer_name> semicolon 
+    => AntennaMaxSideAreaCar::new(v,l),
+}
+antennamaxcutcar: AntennaMaxCutCar= {
+  "ANTENNAMAXCUTCAR" <v:real> <l:layer_name> semicolon 
+    => AntennaMaxCutCar::new(v,l),
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  End Util                                                                  //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  Header                                                                    //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+version: f32 = {
+  "VERSION" <n:real> semicolon => n
+};
+nowireextensionatpin: OnOff = {
+  "NOWIREEXTENSIONATPIN" <o:on_off> semicolon => o,
+};
+namescasesensitive: OnOff = {
+  "NAMESCASESENSITIVE" <o:on_off> semicolon => o,
+};
+busbitchars: String = {
+  "BUSBITCHARS" <s:string> semicolon => s
+};
+dividerchar: String = {
+  "DIVIDERCHAR" <s:string> semicolon => s
+};
+units_value: Units = {
+  "TIME NANOSECONDS" <n:integer> semicolon <mut u:units_value>
+    => { units_time(&mut u, n); u },
+  "CAPACITANCE PICOFARADS" <n:integer> semicolon <mut u:units_value>
+    => { units_capacitance(&mut u, n); u },
+  "RESISTANCE OHMS" <n:integer> semicolon <mut u:units_value>
+    => { units_resistance(&mut u, n); u }, 
+  "POWER MILLIWATTS" <n:integer> semicolon <mut u:units_value>
+    => { units_power(&mut u, n); u }, 
+  "CURRENT MILLIAMPS" <n:integer> semicolon <mut u:units_value>
+    => { units_current(&mut u, n); u }, 
+  "VOLTAGE VOLTS" <n:integer> semicolon <mut u:units_value>
+    => { units_voltage(&mut u, n); u },
+  "DATABASE MICRONS" <n:integer> semicolon <mut u:units_value>
+    => { units_database(&mut u, n); u } ,
+  "FREQUENCY MEGAHERTZ" <n:integer> semicolon <mut u:units_value>
+    => { units_frequency(&mut u, n); u },
+  () => <Units as std::default::Default>::default()
+};
+units: Units = {
+  "UNITS" comment_opt
+    <u:units_value> 
+  "END UNITS" comment_opt => u
+};
+manufacturinggrid: f32 = {
+  "MANUFACTURINGGRID" <n:real> semicolon => n
+};
+useminspacingobs: OnOff = {
+  "USEMINSPACING" "OBS" <v:on_off> semicolon => v
+};
+useminspacingpin: OnOff = {
+  "USEMINSPACING" "PIN" <v:on_off> semicolon => v
+};
+clearancemeasure_values: ClearanceMeasureValue = {
+  "MAXXY" => ClearanceMeasureValue::MAXXY,
+  "EUCLIDEAN" => ClearanceMeasureValue::EUCLIDEAN,
+};
+clearancemeasure: ClearanceMeasureValue = {
+  "CLEARANCEMEASURE" <v:clearancemeasure_values> semicolon => v
+};
+fixedmask: bool = {
+  "FIXEDMASK" semicolon => true
+};
+
+maxviastack: MaxViaStack = {
+  "MAXVIASTACK" <v:real> semicolon 
+    => MaxViaStack::new(v,None),
+  "MAXVIASTACK" <v:real> "RANGE" <b:identifier> <t:identifier> semicolon
+    => MaxViaStack::new(v,Some(MaxViaStackRange::new(b,t))),
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  End Header                                                                //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  PropertyDefinitions                                                       //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+propertydefinitions_values_object_type: PropertyDefinitionType = {
+  "LAYER" =>  PropertyDefinitionType::LAYER,
+  "LIBRARY" => PropertyDefinitionType::LIBRARY,
+  "MACRO" => PropertyDefinitionType::MACRO,
+  "NONDEFAULTRULE" => PropertyDefinitionType::NONDEFAULTRULE,
+  "PIN" => PropertyDefinitionType::PIN,
+  "VIA" => PropertyDefinitionType::VIA,
+  "VIARULE" => PropertyDefinitionType::VIARULE,
+};
+propertydefinitions_values_prop_type: RangeOrValueEnum = {
+  "INTEGER" <n:propertydefinitions_values_type_integer>
+    => RangeOrValueEnum::Integer(Some(n)),
+  "INTEGER" 
+    => RangeOrValueEnum::Integer(None),
+  "REAL" <n:propertydefinitions_values_type_real> 
+    => RangeOrValueEnum::Real(Some(n)),
+  "REAL" => RangeOrValueEnum::Real(None),
+  "STRING" <s:string>
+    => RangeOrValueEnum::String(Some(s.to_string())),
+  "STRING" => RangeOrValueEnum::String(None)
+};
+propertydefinitions_values_type_real: RangeOrValue<f32> = {
+  "RANGE" <n1:real> <n2:real> => Either::Left((n1,n2)),
+  real => Either::Right(<>),
+};
+propertydefinitions_values_type_integer: RangeOrValue<i32> = {
+  "RANGE" <n1:integer> <n2:integer> => Either::Left((n1,n2)),
+  integer => Either::Right(<>),
+};
+propertydefinitions_values: PropertyDefinition = {
+  <ot:propertydefinitions_values_object_type> <n:identifier>
+    <pt:propertydefinitions_values_prop_type>
+  semicolon
+    => propertydefinition(ot, n, pt)
+};
+propertydefinitions_values_list: Vec<PropertyDefinition> = {
+   <v:propertydefinitions_values> <mut l:propertydefinitions_values_list> 
+      =>
+      { l.push(v); l },
+  <v:propertydefinitions_values> =>
+    vec![v]
+};
+propertydefinitions: Vec<PropertyDefinition> = {
+  "PROPERTYDEFINITIONS" 
+    <l:propertydefinitions_values_list>
+  "END" "PROPERTYDEFINITIONS"
+    => l 
+};
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  End PropertyDefinitions                                                   //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  Layers                                                                    //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+layer_name: String = {
+  "LAYER" <n:identifier> => n,
+}
+layer_name_opt: Option<String> = {
+  <l:layer_name> => Some(l),
+  () => None,
+}
+
+layer_cut_spacing_layer_stack: bool = {
+  "STACK" => true,
+  () => false,
+};
+layer_cut_spacing_adjacentcuts_num: i32 = {
+  "2" => 2,
+  "3" => 3,
+  "4" => 4,
+};
+layer_cut_spacing_adjacentcuts_exceptsamepgnet : bool = {
+  "EXCEPTSAMEPGNET" => true,
+  () => false,
+};
+layer_cut_spacing_opts: Option<LayerCutSpacingEnum> = {
+  "LAYER" <s:identifier> <ls:layer_cut_spacing_layer_stack> => Some(LayerCutSpacingEnum::LAYER(LayerCutSpacingLayer::new(s,ls))),
+  "ADJACENTCUTS" <n:layer_cut_spacing_adjacentcuts_num> "WITHIN" <w:real> <e:layer_cut_spacing_adjacentcuts_exceptsamepgnet>
+    => Some(LayerCutSpacingEnum::ADJACENTCUT(LayerCutSpacingAdjacentCut::new(n,w,e))),
+  "PARALLELOVERLAP" => Some(LayerCutSpacingEnum::PARALLELOVERLAP),
+  "AREA" <n:real> => Some(LayerCutSpacingEnum::AREA(n)),
+  () => None,
+};
+layer_cut_spacing: LayerCutSpacing = {
+  "SPACING" <n:real>
+    <ctc:centertocenter>
+    <s:samenet>
+    <opts:layer_cut_spacing_opts>
+  semicolon 
+    => LayerCutSpacing::new(n,ctc,s,opts)
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+layer_cut_spacingtable_within: Vec<LayerCutSpacingTableWithin> = {
+  "WITHIN" <w:real> "SPACING" <s:real> <mut l:layer_cut_spacingtable_within>
+    => { l.push(LayerCutSpacingTableWithin::new(w,s)); l },
+  "WITHIN" <w:real> "SPACING" <s:real>
+    => vec![LayerCutSpacingTableWithin::new(w,s)]
+};
+layer_cut_spacingtable: LayerCutSpacingTable = {
+  "SPACINGTABLE ORTHOGONAL" <l:layer_cut_spacingtable_within> semicolon
+    => LayerCutSpacingTable::new(Some(l)),
+  "SPACINGTABLE ORTHOGONAL" semicolon
+    => LayerCutSpacingTable::new(None)
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+layer_arrayspacing_longarray: bool = {
+  "LONGARRAY" => true,
+  () => false,
+};
+layer_arrayspacing_width: Option<f32> = {
+  "WIDTH" <n:real> => Some(n),
+  () => None,
+};
+layer_arrayspacing_arraycuts: LayerArraySpacingArrayCuts = {
+  "ARRAYCUTS" <c:integer> "SPACING" <s:real>
+    => LayerArraySpacingArrayCuts::new(c,s),
+};
+layer_arrayspacing_arraycuts_list: Vec<LayerArraySpacingArrayCuts> = {
+  <mut l:layer_arrayspacing_arraycuts_list> <v:layer_arrayspacing_arraycuts> 
+    => { l.push(v); l },
+  <v:layer_arrayspacing_arraycuts>
+    => vec![v],
+};
+layer_arrayspacing: LayerArraySpacing = {
+  "ARRAYSPACING" <l:layer_arrayspacing_longarray> <w:layer_arrayspacing_width> "CUTSPACING" <c:real> <a:layer_arrayspacing_arraycuts_list> semicolon
+    => LayerArraySpacing::new(l,w,c,Some(a)),
+  "ARRAYSPACING" <l:layer_arrayspacing_longarray> <w:layer_arrayspacing_width> "CUTSPACING" <c:real> semicolon
+    => LayerArraySpacing::new(l,w,c,None),
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+
+layer_width: f32 = {
+  <w:width> semicolon => w
+};
+layer_width_opt: Option<f32> = {
+  "WIDTH" <w:real> semicolon => Some(w),
+  () => None,
+};
+layer_enclosure_type: Option<LayerEnclosureTypeEnum> = {
+  "ABOVE" => Some(LayerEnclosureTypeEnum::ABOVE),
+  "BELOW" => Some(LayerEnclosureTypeEnum::BELOW),
+  () => None,
+};
+layer_enclosure_width_exceptextracut: Option<f32> = {
+  "EXCEPTEXTRACUT" <n:real> => Some(n),
+  () => None,
+};
+layer_enclosure_width_length: Option<LayerEnclosureEnum> = {
+  <w:width> <e:layer_enclosure_width_exceptextracut>
+    => Some(LayerEnclosureEnum::WIDTH(LayerEnclosureWidth::new(w,e))),
+  "LENGTH" <n:real> => Some(LayerEnclosureEnum::LENGTH(n)),
+  () => None,
+};
+layer_enclosure: LayerEnclosure = {
+  "ENCLOSURE" <t:layer_enclosure_type> <n1:real> <n2:real> <wl:layer_enclosure_width_length> semicolon
+    => LayerEnclosure::new(t,n1,n2,wl)
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+
+layer_preferenclosure: LayerEnclosure = {
+  "PREFERENCLOSURE" <t:layer_enclosure_type> <n1:real> <n2:real> semicolon
+    => LayerEnclosure::new(t,n1,n2,None)
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+
+layer_accurrentdensity_frequency_tableentries: Vec<f32> = {
+  "TABLEENTRIES" <l:real_list> => l,
+};
+layer_accurrentdensity_frequency_frequency: Vec<f32> = {
+  "FREQUENCY" <l:real_list> semicolon => l,
+};
+layer_accurrentdensity_frequency_cutarea: Option<Vec<f32>> = {
+  "CUTAREA" <l:real_list> semicolon => Some(l),
+  () => None,
+};
+layer_accurrentdensity_frequency_width: Option<Vec<f32>> = {
+  "WIDTH" <l:real_list> semicolon => Some(l),
+  () => None,
+};
+layer_accurrentdensity_frequency: ACCurrentDensityPeakRMS = {
+  <f:layer_accurrentdensity_frequency_frequency>
+     <w:layer_accurrentdensity_frequency_width>
+     <c:layer_accurrentdensity_frequency_cutarea>
+       <t:layer_accurrentdensity_frequency_tableentries>
+   => ACCurrentDensityPeakRMS::new(f,c,w,t),
+};
+layer_accurrentdensity_type: ACCurrentDensityEnum = {
+  "PEAK" <l:layer_accurrentdensity_frequency>
+    => ACCurrentDensityEnum::PEAK(l),
+  "RMS" <l:layer_accurrentdensity_frequency>
+    => ACCurrentDensityEnum::RMS(l),
+  "AVERAGE" <l:layer_accurrentdensity_frequency>
+    => ACCurrentDensityEnum::AVERAGE,
+};
+layer_accurrentdensity: ACCurrentDensity = {
+  "ACCURRENTDENSITY" <t:layer_accurrentdensity_type> semicolon
+    => ACCurrentDensity::new(t),
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+layer_dccurrentdensity_type: DCCurrentDensityEnum = {
+  real => DCCurrentDensityEnum::REAL(<>),
+    <w:layer_accurrentdensity_frequency_width>
+    <c:layer_accurrentdensity_frequency_cutarea>
+      <t:layer_accurrentdensity_frequency_tableentries>
+    => DCCurrentDensityEnum::CUTTABLE(DCCurrentDensityCutTable::new(c,w,t))
+};
+layer_dccurrentdensity: DCCurrentDensity = {
+  "DCCURRENTDENSITY" "AVERAGE"
+    <t:layer_dccurrentdensity_type> semicolon
+    => DCCurrentDensity::new(t),
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+
+////////////////////////////////////////////////////////////////////////////////
+
+layer_antennaarearatio: f32 = {
+  "ANTENNAAREARATIO" <n:real> semicolon => n
+};
+layer_antennasidearearatio: f32 = {
+  "ANTENNASIDEAREARATIO" <n:real> semicolon => n
+};
+layer_antennacumsidearearatio: f32 = {
+  "ANTENNACUMSIDEAREARATIO" <n:real> semicolon => n
+};
+layer_antennadiffsidearearatio: PieceWiseLinear = {
+  "ANTENNADIFFSIDEAREARATIO" <t:pwl>  semicolon => t
+};
+layer_antennacumdiffsidearearatio: PieceWiseLinear = {
+  "ANTENNACUMDIFFSIDEAREARATIO" <t:pwl>  semicolon => t
+};
+layer_antennadiffarearatio: PieceWiseLinear = {
+  "ANTENNADIFFAREARATIO" <t:pwl> semicolon
+    => t,
+};
+layer_antennacumarearatio: f32 = {
+  "ANTENNACUMAREARATIO" <n:real> semicolon
+    => n,
+};
+layer_antennacumdiffarearatio: PieceWiseLinear = {
+  "ANTENNACUMDIFFAREARATIO" <t:pwl> semicolon
+    => t,
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+
+layer_antennaareafactor_diffuseonly: bool = {
+  "DIFFUSEONLY" => true,
+  () => false,
+};
+layer_antennaareafactor: LayerAntennaAreaFactor = {
+  "ANTENNAAREAFACTOR" <n:real> <d:layer_antennaareafactor_diffuseonly> semicolon
+    => LayerAntennaAreaFactor::new(n,d),
+};
+layer_antennasideareafactor: LayerAntennaAreaFactor = {
+  "ANTENNASIDEAREAFACTOR" <n:real> <d:layer_antennaareafactor_diffuseonly> semicolon
+    => LayerAntennaAreaFactor::new(n,d),
+};
+layer_antennacumroutingpluscut: bool = {
+  "ANTENNACUMROUTINGPLUSCUT" semicolon => true,
+};
+layer_antennagateplusdiff: f32 = {
+  "ANTENNAGATEPLUSDIFF" <n:real> semicolon => n,
+};
+layer_antennaareaminusdiff: f32 = {
+  "ANTENNAAREAMINUSDIFF" <n:real> semicolon => n,
+};
+layer_antennaareadiffreducepwl: Vec<(f32,f32)> = {
+  "ANTENNAAREADIFFREDUCEPWL" <l:real_pair_list> semicolon => l,
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  Layer Cut                                                                 //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+layer_cut_opts: LayerCutOpts = {
+  <v:mask> <mut c:layer_cut_opts> => { c.mask = Some(v); c },
+
+  <v:layer_cut_spacing> <mut c:layer_cut_opts> => vec_push![c,spacings,v],
+  <v:layer_cut_spacingtable> <mut c:layer_cut_opts> => set_opt![c,spacingtable,v],
+
+  <v:layer_arrayspacing> <mut c:layer_cut_opts> =>  { c.arrayspacing = Some(v) ; c },
+  <v:layer_width> <mut c:layer_cut_opts> =>  { c.width = Some(v) ; c },
+  <v:layer_diagwidth> <mut c:layer_cut_opts> => { c.diagwidth = Some(v); c },
+  <v:layer_diagspacing> <mut c:layer_cut_opts> => { c.diagspacing = Some(v); c },
+  <v:layer_diagminedgelength> <mut c:layer_cut_opts> => { c.diagminedgelength = Some(v); c },
+  <v:layer_offset> <mut c:layer_cut_opts> => { c.offset = Some(v); c },
+  <v:layer_pitch> <mut c:layer_cut_opts> => { c.pitch = Some(v); c },
+  <v:layer_diagpitch> <mut c:layer_cut_opts> => { c.diagpitch = Some(v); c },
+  <v:layer_enclosure> <mut c:layer_cut_opts> =>  vec_push![c,enclosures,v],
+  <v:layer_preferenclosure> <mut c:layer_cut_opts> => vec_push![c,preferenclosures,v],
+  <v:layer_cut_resistance> <mut c:layer_cut_opts> =>  { c.resistance = Some(v) ; c },
+  <v:layer_cut_capacitance> <mut c:layer_cut_opts> =>  { c.capacitance = Some(v) ; c },
+  <v:layer_accurrentdensity> <mut c:layer_cut_opts> =>  { c.accurrentdensity = Some(v) ; c },
+  <v:layer_dccurrentdensity> <mut c:layer_cut_opts> =>  { c.dccurrentdensity = Some(v) ; c },
+
+  <v:antennamodel> <mut c:layer_cut_opts> => vec_push![c,antennamodels,v],
+  <v:layer_antennaarearatio> <mut c:layer_cut_opts> => vec_push![c,antennaarearatios,v],
+  <v:layer_antennasidearearatio> <mut c:layer_cut_opts> => vec_push![c,antennasidearearatios,v],
+  <v:layer_antennacumsidearearatio> <mut c:layer_cut_opts> => vec_push![c,antennacumsidearearatios,v],
+  <v:layer_antennadiffsidearearatio> <mut c:layer_cut_opts> => vec_push![c,antennadiffsidearearatios,v],
+  <v:layer_antennacumdiffsidearearatio> <mut c:layer_cut_opts> => vec_push![c,antennacumdiffsidearearatios,v],
+  <v:layer_antennadiffarearatio> <mut c:layer_cut_opts> => vec_push![c,antennadiffarearatios,v],
+  <v:layer_antennacumarearatio> <mut c:layer_cut_opts> => vec_push![c,antennacumarearatios,v],
+  <v:layer_antennacumdiffarearatio> <mut c:layer_cut_opts> => vec_push![c,antennacumdiffarearatios,v],
+  <v:layer_antennaareafactor> <mut c:layer_cut_opts> => vec_push![c,antennaareafactors,v],
+  <v:layer_antennasideareafactor> <mut c:layer_cut_opts> => vec_push![c,antennasideareafactors,v],
+
+  <v:layer_antennacumroutingpluscut> <mut c:layer_cut_opts> =>  { c.antennacumroutingpluscut = Some(v) ; c },
+  <v:layer_antennagateplusdiff> <mut c:layer_cut_opts> =>  { c.antennagateplusdiff = Some(v) ; c },
+  <v:layer_antennaareaminusdiff> <mut c:layer_cut_opts> =>  { c.antennaareaminusdiff = Some(v) ; c },
+  <v:layer_antennaareadiffreducepwl> <mut c:layer_cut_opts> =>  { c.antennaareadiffreducepwl = Some(v) ; c },
+  <v:property> <mut c:layer_cut_opts> => vec_push![c,properties,v],
+  () => <LayerCutOpts as std::default::Default>::default()
+};
+layer_cut: LayerCut = {
+  "LAYER" <n:identifier> comment_opt
+  "TYPE" "CUT" semicolon 
+    <o:layer_cut_opts>
+  <cn:end_name>
+    => LayerCut::new(n,o,cn),
+};
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  End Layer Cut                                                             //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  Layer Implant                                                             //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+layer_implant_spacing_layer: Option<String> = {
+  "LAYER" <n:identifier> => Some(n),
+  () => None
+}
+layer_implant_spacing: LayerImplantSpacing = {
+  "SPACING" <s:real> <l:layer_implant_spacing_layer> semicolon
+    => LayerImplantSpacing::new(s,l),
+};
+
+layer_implant_opts: LayerImplantOpts = {
+  <v:mask> <mut c:layer_implant_opts> => { c.mask = Some(v); c },
+  <v:layer_width> <mut c:layer_implant_opts> => { c.width = Some(v); c },
+  <v:layer_implant_spacing> <mut c:layer_implant_opts> => { c.spacing = Some(v); c },
+  <v:property> <mut c:layer_implant_opts> => vec_push![c,properties,v],
+  () => <LayerImplantOpts as std::default::Default>::default()
+};
+layer_implant: LayerImplant = {
+  "LAYER" <n:identifier> comment_opt
+  "TYPE" "IMPLANT" semicolon 
+    <o:layer_implant_opts>
+  <cn:end_name> 
+    => LayerImplant::new(n,o,cn),
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  End Layer Implant                                                         //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  Layer MasterSlice Overlap                                                 //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+layer_masterslice_overlap_type: LayerMasterSliceEnum = {
+  "MASTERSLICE" => LayerMasterSliceEnum::MASTERSLICE, 
+  "OVERLAP" => LayerMasterSliceEnum::OVERLAP,
+};
+layer_masterslice_overlap_opts: LayerMasterSliceOpts = {
+  <v:mask> <mut c:layer_masterslice_overlap_opts> => { c.mask = Some(v); c },
+  <v:property> <mut c:layer_masterslice_overlap_opts> => vec_push![c,properties,v],
+  // TODO: property_lef58_type
+  // TODO: property_lef58_trimmedmetal
+  () => <LayerMasterSliceOpts as std::default::Default>::default()
+};
+layer_masterslice_overlap: LayerMasterSlice = {
+  "LAYER" <n1:identifier> comment_opt
+  "TYPE" layer_masterslice_overlap_type semicolon 
+    <o:layer_masterslice_overlap_opts>
+  <n2:end_name> => LayerMasterSlice::new(n1,o,n2)
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  End Layer MasterSlice Overlap                                             //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  Layer Routing                                                             //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+layer_direction_type: LayerRoutingDirection = {
+  "HORIZONTAL" => LayerRoutingDirection::HORIZONTAL, 
+  "VERTICAL" => LayerRoutingDirection::VERTICAL,
+  "DIAG45" => LayerRoutingDirection::DIAG45,
+  "DIAG135" => LayerRoutingDirection::DIAG135,
+};
+layer_direction: LayerRoutingDirection  = {
+  "DIRECTION" <d:layer_direction_type> semicolon => d,
+};
+layer_distance: RangeOrValue<f32> = {
+  real => Either::Right(<>), // distance
+  <x:real> <y:real> => Either::Left((x,y)), // xDistance yDistance
+};
+layer_pitch: RangeOrValue<f32> = {
+  "PITCH" <p:layer_distance> semicolon => p,
+};
+layer_diagpitch: RangeOrValue<f32> = {
+  "DIAGPITCH" <d:layer_distance> semicolon => d,
+};
+layer_offset: RangeOrValue<f32> = {
+  "OFFSET" <o:layer_distance> semicolon => o,
+};
+layer_diagwidth : f32 = {
+  "DIAGWIDTH" <w:real> semicolon => w,
+};
+layer_diagspacing: f32 = {
+  "DIAGSPACING" <s:real> semicolon => s,
+};
+layer_diagminedgelength: f32 = {
+  "DIAGMINEDGELENGTH" <d:real> semicolon => d,
+};
+layer_area: f32 = {
+  "AREA" <a:real> semicolon => a,
+};
+layer_minsize_size: LayerRoutingSize = {
+  <n1:real> <n2:real> => LayerRoutingSize::new(n1,n2),
+};
+layer_minsize_size_list: Vec<LayerRoutingSize> = {
+  <v:layer_minsize_size> <mut l:layer_minsize_size_list> => { l.push(v); l },
+  <v:layer_minsize_size> => vec![v],
+}
+layer_minsize_size_list_opt: Option<Vec<LayerRoutingSize>> = {
+  layer_minsize_size_list => Some(<>),
+  () => None,
+}
+
+layer_minsize: LayerRoutingMinSize = {
+  "MINSIZE" <mw:real> <ml:real> <s2:layer_minsize_size_list_opt> semicolon
+    => LayerRoutingMinSize::new(LayerRoutingSize::new(mw,ml), s2), 
+};
+layer_wireextension: f32 = {
+  "WIREEXTENSION" <v:real> semicolon => v
+};
+layer_minimumcut_within: Option<f32> = {
+  "WITHIN" <v:real> => Some(v),
+  () => None
+};
+layer_minimumcut_from: Option<LayerRoutingMinimumCutFrom> = {
+  "FROMABOVE" => Some(LayerRoutingMinimumCutFrom::FROMABOVE),
+  "FROMBELOW" => Some(LayerRoutingMinimumCutFrom::FROMBELOW),
+  () => None
+};
+layer_minimumcut_length: Option<LayerRoutingMinimumCutLength> = {
+  "LENGTH" <l:real> "WITHIN" <w:real> => Some(LayerRoutingMinimumCutLength::new(l,w)),
+  () => None
+};
+layer_minimumcut: LayerRoutingMinimumCut = {
+  "MINIMUMCUT" <n:integer> <w:width>
+    <wi:layer_minimumcut_within>
+    <f:layer_minimumcut_from>
+    <l:layer_minimumcut_length>
+  semicolon
+    => LayerRoutingMinimumCut::new(n,w,wi,f,l),
+};
+layer_maxwidth: f32 = {
+  "MAXWIDTH" <w:real> semicolon => w
+};
+layer_minwidth: f32 = {
+  "MINWIDTH" <w:real> semicolon => w
+};
+
+layer_minstep_corner: LayerRoutingMinStepCorner = {
+  "INSIDECORNER" => LayerRoutingMinStepCorner::INSIDECORNER,
+  "OUTSIDECORNER" => LayerRoutingMinStepCorner::OUTSIDECORNER,
+  "STEP" => LayerRoutingMinStepCorner::STEP,
+}
+layer_minstep_lengthsum: Option<f32> = {
+  "LENGTHSUM" <n:real> => Some(n),
+  () => None,
+}
+layer_minstep: LayerRoutingMinStep = {
+  "MINSTEP" <step:real> <l:layer_minstep_lengthsum> semicolon => LayerRoutingMinStep::new(step, None, l, None),
+  "MINSTEP" <step:real> <c:layer_minstep_corner> <l:layer_minstep_lengthsum> semicolon => LayerRoutingMinStep::new(step,Some(c),l,None),
+  "MINSTEP" <step:real> "MAXEDGES" <e:integer> semicolon => LayerRoutingMinStep::new(step,None,None,Some(e)),
+};
+
+layer_minenclosedarea: LayerRoutingMinEnclosedArea = {
+  "MINENCLOSEDAREA" <a:real> semicolon => LayerRoutingMinEnclosedArea::new(a, None),
+  "MINENCLOSEDAREA" <a:real> <w:width> semicolon => LayerRoutingMinEnclosedArea::new(a, Some(w)),
+};
+
+layer_protrusionwidth: LayerRoutingProtrusionWidth = {
+  "PROTRUSIONWIDTH" <w1:real> "LENGTH" <l:real> "WIDTH" <w2:real> semicolon
+    => LayerRoutingProtrusionWidth::new(w1,l,w2),
+};
+
+layer_routing_resistance: PieceWiseLinear = {
+  "RESISTANCE RPERSQ" <v:pwl> semicolon => v,
+};
+
+layer_routing_capacitance: PieceWiseLinear = {
+  "CAPACITANCE" "CPERSQDIST" <v:pwl> semicolon => v,
+};
+
+layer_cut_resistance: PieceWiseLinear = {
+  "RESISTANCE" <v:pwl> semicolon => v,
+};
+
+layer_cut_capacitance: PieceWiseLinear = {
+  "CAPACITANCE" <v:pwl> semicolon => v,
+};
+
+layer_height: f32 = {
+  "HEIGHT" <h:real> semicolon => h,
+};
+
+layer_thickness: f32 = {
+  "THICKNESS" <t:real> semicolon => t,
+};
+
+layer_shrinkage: f32 = {
+  "SHRINKAGE" <s:real> semicolon => s,
+};
+
+layer_capmultiplier: f32 = {
+  "CAPMULTIPLIER" <c:real> semicolon => c,
+};
+
+layer_edgecapacitance: f32 = {
+  "EDGECAPACITANCE" <e:real> semicolon => e,
+};
+
+layer_minimumdensity: f32 = {
+  "MINIMUMDENSITY" <m:real> semicolon => m,
+};
+
+layer_maximumdensity: f32 = {
+  "MAXIMUMDENSITY" <m:real> semicolon => m,
+};
+
+layer_densitycheckwindow: WidthLength = {
+  "DENSITYCHECKWINDOW" <l:real> <w:real> semicolon => WidthLength::new(w,l),
+};
+
+layer_densitycheckstep: f32 = {
+  "DENSITYCHECKSTEP" <s:real> semicolon => s,
+};
+
+layer_fillactivespacing: f32 = {
+  "FILLACTIVESPACING" <s:real> semicolon => s,
+};
+
+// [[SPACING minSpacing
+//     [ RANGE minWidth maxWidth
+//        [ USELENGTHTHRESHOLD
+//        | INFLUENCE value [RANGE stubMinWidth stubMaxWidth]
+//        | RANGE minWidth maxWidth]
+//     | LENGTHTHRESHOLD maxLength [RANGE minWidth maxWidth]
+//     | ENDOFLINE eolWidth WITHIN eolWithin
+//          [PARALLELEDGE parSpace WITHIN parWithin [TWOEDGES]]
+//     | SAMENET [PGONLY]
+//     | NOTCHLENGTH minNotchLength
+//     | ENDOFNOTCHWIDTH endOfNotchWidth NOTCHSPACING minNotchSpacing
+//           NOTCHLENGTH minNotchLength
+//     ] 
+// ;] ...
+
+layer_routing_spacing_range_enum: LayerRoutingSpacingRangeEnum = {
+  "USELENGTHTHRESHOLD" 
+    => LayerRoutingSpacingRangeEnum::USELENGTHTHRESHOLD,
+  "INFLUENCE" <v:real> <r:range_no_semicolon_opt> 
+    => LayerRoutingSpacingRangeEnum::INFLUENCE(LayerRoutingSpacingRangeInfluence::new(v,r)),
+  <r:range_no_semicolon> 
+    => LayerRoutingSpacingRangeEnum::RANGE(r),
+}
+layer_routing_spacing_range: LayerRoutingSpacingRange = {
+  <r:range_no_semicolon>
+    <e:layer_routing_spacing_range_enum> 
+    => LayerRoutingSpacingRange::new(r,Some(e)),
+  <r:range_no_semicolon>
+    => LayerRoutingSpacingRange::new(r,None),
+}
+
+layer_routing_spacing_lengththreshold: LayerRoutingSpacingLengthThreshold = {
+  "LENGTHTHRESHOLD" <max:real> <r:range_no_semicolon_opt>
+    => LayerRoutingSpacingLengthThreshold::new(max,r),
+}
+
+layer_routing_spacing_endofline_paralleledge: LayerRoutingSpacingEndOfLineParallelEdge = {
+  "PARALLELEDGE" <s:real> "WITHIN" <w:real> "TWOEDGES"
+    => LayerRoutingSpacingEndOfLineParallelEdge::new(s,w,true),
+  "PARALLELEDGE" <s:real> "WITHIN" <w:real> 
+    => LayerRoutingSpacingEndOfLineParallelEdge::new(s,w,false),
+}
+
+layer_routing_spacing_endofline: LayerRoutingSpacingEndOfLine = {
+  "ENDOFLINE" <w:real> "WITHIN" <wi:real> <p:layer_routing_spacing_endofline_paralleledge>
+    => LayerRoutingSpacingEndOfLine::new(w,wi,Some(p)),
+  "ENDOFLINE" <w:real> "WITHIN" <wi:real> 
+    => LayerRoutingSpacingEndOfLine::new(w,wi,None),
+}
+
+layer_routing_spacing_samenet: LayerRoutingSpacingSameNet = {
+  "SAMENET" => LayerRoutingSpacingSameNet::new(false),
+  "SAMENET" "PGONLY" => LayerRoutingSpacingSameNet::new(true),
+}
+
+layer_routing_spacing_notchlength: f32 = {
+  "NOTCHLENGTH" <v:real> => v,
+}
+
+layer_routing_spacing_notch: LayerRoutingSpacingNotch = {
+  "ENDOFNOTCHWIDTH" <eof:real> "NOTCHSPACING" <s:real> <l:layer_routing_spacing_notchlength>
+    => LayerRoutingSpacingNotch::new(eof,s,l),
+}
+
+
+layer_routing_spacing_enum: LayerRoutingSpacingEnum = {
+  layer_routing_spacing_range => LayerRoutingSpacingEnum::RANGE(<>),
+  layer_routing_spacing_lengththreshold => LayerRoutingSpacingEnum::LENGTHTHRESHOLD(<>),
+  layer_routing_spacing_endofline => LayerRoutingSpacingEnum::ENDOFLINE(<>),
+  layer_routing_spacing_samenet => LayerRoutingSpacingEnum::SAMENET(<>),
+  layer_routing_spacing_notchlength => LayerRoutingSpacingEnum::NOTCHLENGTH(<>),
+  layer_routing_spacing_notch => LayerRoutingSpacingEnum::NOTCH(<>),
+}
+layer_routing_spacing_enum_opt: Option<LayerRoutingSpacingEnum> = {
+  layer_routing_spacing_enum => Some(<>),
+  () => None,
+}
+
+layer_routing_spacing: LayerRoutingSpacing = {
+  "SPACING" <s:real> <e:layer_routing_spacing_enum_opt> semicolon
+    => LayerRoutingSpacing::new(s,e),
+}
+
+// [SPACINGTABLE
+//    PARALLELRUNLENGTH {length} ...
+//      {WIDTH width {spacing} ...}... ;
+//      [SPACINGTABLE
+//        INFLUENCE {WIDTH width WITHIN distance
+//          SPACING spacing} ... ;]
+//  | TWOWIDTHS {WIDTH width [PRL runLength]
+//          {spacing} ...} ... ;
+// ;]
+
+layer_routing_spacingtable_parallel_width: LayerRoutingSpacingTableParallelWidth = {
+    "WIDTH" <w:real> <s:real_list>  => LayerRoutingSpacingTableParallelWidth::new(w,s),
+}
+layer_routing_spacingtable_parallel_width_list: Vec<LayerRoutingSpacingTableParallelWidth> = {
+  <v:layer_routing_spacingtable_parallel_width> <mut l:layer_routing_spacingtable_parallel_width_list> => { l.push(v); l },
+  <v:layer_routing_spacingtable_parallel_width> => vec![v],
+}
+
+layer_routing_spacingtable_parallel_spacingtable_width: LayerRoutingSpacingTableParallelSpacingTableWidth = {
+  "WIDTH" <w:real> "WITHIN" <wi:real> "SPACING" <s:real> 
+    => LayerRoutingSpacingTableParallelSpacingTableWidth::new(w,wi,s),
+}
+layer_routing_spacingtable_parallel_spacingtable_width_list: Vec<LayerRoutingSpacingTableParallelSpacingTableWidth> = {
+  <v:layer_routing_spacingtable_parallel_spacingtable_width> <mut l:layer_routing_spacingtable_parallel_spacingtable_width_list> => { l.push(v); l },
+  <v:layer_routing_spacingtable_parallel_spacingtable_width> => vec![v],
+}
+
+layer_routing_spacingtable_parallel_spacingtable: LayerRoutingSpacingTableParallelSpacingTable = {
+  "SPACINGTABLE" "INFLUENCE"
+    <w:layer_routing_spacingtable_parallel_spacingtable_width_list> semicolon
+      => LayerRoutingSpacingTableParallelSpacingTable::new(w),
+}
+layer_routing_spacingtable_parallel_spacingtable_opt: Option<LayerRoutingSpacingTableParallelSpacingTable> = {
+  layer_routing_spacingtable_parallel_spacingtable => Some(<>),
+  () => None,
+}
+
+layer_routing_spacingtable_parallel: LayerRoutingSpacingTableParallel = {
+  "PARALLELRUNLENGTH" <l:real_list>
+    <wl:layer_routing_spacingtable_parallel_width_list> semicolon
+    <sp:layer_routing_spacingtable_parallel_spacingtable_opt> 
+      => LayerRoutingSpacingTableParallel::new(l,wl,sp),
+}
+
+layer_routing_spacingtable_twowidths_width: LayerRoutingSpacingTableTwoWidthsWidth = {
+    "WIDTH" <w:real> "PRL" <r:real> <s:real_list>  => LayerRoutingSpacingTableTwoWidthsWidth::new(w,Some(r),s),
+    "WIDTH" <w:real> <s:real_list>  => LayerRoutingSpacingTableTwoWidthsWidth::new(w,None,s),
+}
+layer_routing_spacingtable_twowidths_width_list: Vec<LayerRoutingSpacingTableTwoWidthsWidth> = {
+  <v:layer_routing_spacingtable_twowidths_width> <mut l:layer_routing_spacingtable_twowidths_width_list> => { l.push(v); l },
+  <v:layer_routing_spacingtable_twowidths_width> => vec![v],
+}
+layer_routing_spacingtable_twowidths: LayerRoutingSpacingTableTwoWidths = {
+  "TWOWIDTHS" 
+    <wl:layer_routing_spacingtable_twowidths_width_list> semicolon
+      => LayerRoutingSpacingTableTwoWidths::new(wl),
+}
+
+layer_routing_spacingtable_enum: LayerRoutingSpacingTable = {
+  layer_routing_spacingtable_parallel => LayerRoutingSpacingTable::PARALLEL(<>),
+  layer_routing_spacingtable_twowidths => LayerRoutingSpacingTable::TWOWIDTHS(<>),
+}
+layer_routing_spacingtable: LayerRoutingSpacingTable = {
+  "SPACINGTABLE" <t:layer_routing_spacingtable_enum> => t,
+}
+
+layer_routing_opts_: LayerRoutingOpts = {
+  <v:mask> <mut c:layer_routing_opts_> => { c.mask = Some(v); c },
+  <v:layer_direction> <mut c:layer_routing_opts_> => { c.direction = Some(v); c },
+  <v:layer_pitch> <mut c:layer_routing_opts_> => { c.pitch = Some(v); c },
+  <v:layer_width> <mut c:layer_routing_opts_> => { c.width = Some(v); c },
+  <v:layer_offset> <mut c:layer_routing_opts_> => { c.offset = Some(v); c },
+  <v:layer_diagwidth> <mut c:layer_routing_opts_> => { c.diagwidth = Some(v); c },
+  <v:layer_diagpitch> <mut c:layer_routing_opts_> => { c.diagpitch = Some(v); c },
+  <v:layer_diagspacing> <mut c:layer_routing_opts_> => { c.diagspacing = Some(v); c },
+  <v:layer_diagminedgelength> <mut c:layer_routing_opts_> => { c.diagminedgelength = Some(v); c },
+  <v:layer_area> <mut c:layer_routing_opts_> => { c.area = Some(v); c },
+  <v:layer_minsize> <mut c:layer_routing_opts_> => { c.minsize = Some(v); c },
+
+  <v:layer_routing_spacing> <mut c:layer_routing_opts_> => vec_push![c,spacings,v],
+  // TODO: it causes reduce shift conflict
+  // <v:layer_routing_spacingtable> <mut c:layer_routing_opts_> => { c.spacingtable = Some(v); c },
+  <v:layer_arrayspacing> <mut c:layer_routing_opts_> =>  { c.arrayspacing = Some(v) ; c },
+
+  <v:layer_wireextension> <mut c:layer_routing_opts_> => { c.wireextension = Some(v); c },
+  <v:layer_minimumcut> <mut c:layer_routing_opts_> => { c.minimumcut = Some(v); c },
+  <v:layer_maxwidth> <mut c:layer_routing_opts_> => { c.maxwidth = Some(v); c },
+  <v:layer_minwidth> <mut c:layer_routing_opts_> => { c.minwidth = Some(v); c },
+  <v:layer_minstep> <mut c:layer_routing_opts_> => { c.minstep = Some(v); c },
+  <v:layer_minenclosedarea> <mut c:layer_routing_opts_> => { c.minenclosedarea = Some(v); c },
+  <v:layer_protrusionwidth> <mut c:layer_routing_opts_> => { c.protrusionwidth = Some(v); c },
+  <v:layer_routing_resistance> <mut c:layer_routing_opts_> => { c.resistance = Some(v); c },
+  <v:layer_routing_capacitance> <mut c:layer_routing_opts_> => { c.capacitance = Some(v); c },
+  <v:layer_height> <mut c:layer_routing_opts_> => { c.height = Some(v); c },
+  <v:layer_thickness> <mut c:layer_routing_opts_> => { c.thickness = Some(v); c },
+  <v:layer_shrinkage> <mut c:layer_routing_opts_> => { c.shrinkage = Some(v); c },
+  <v:layer_capmultiplier> <mut c:layer_routing_opts_> => { c.capmultiplier = Some(v); c },
+  <v:layer_edgecapacitance> <mut c:layer_routing_opts_> => { c.edgecapacitance = Some(v); c },
+  <v:layer_minimumdensity> <mut c:layer_routing_opts_> => { c.minimumdensity = Some(v); c },
+  <v:layer_maximumdensity> <mut c:layer_routing_opts_> => { c.maximumdensity = Some(v); c },
+  <v:layer_densitycheckwindow> <mut c:layer_routing_opts_> => { c.densitycheckwindow = Some(v); c },
+  <v:layer_densitycheckstep> <mut c:layer_routing_opts_> => { c.densitycheckstep = Some(v); c },
+  <v:layer_fillactivespacing> <mut c:layer_routing_opts_> => { c.fillactivespacing = Some(v); c },
+
+  <v:antennamodel> <mut c:layer_routing_opts_> => vec_push![c,antennamodels,v],
+  <v:layer_antennaarearatio> <mut c:layer_routing_opts_> => vec_push![c,antennaarearatios,v],
+  <v:layer_antennasidearearatio> <mut c:layer_routing_opts_> => vec_push![c,antennasidearearatios,v],
+  <v:layer_antennacumsidearearatio> <mut c:layer_routing_opts_> => vec_push![c,antennacumsidearearatios,v],
+  <v:layer_antennadiffsidearearatio> <mut c:layer_routing_opts_> => vec_push![c,antennadiffsidearearatios,v],
+  <v:layer_antennacumdiffsidearearatio> <mut c:layer_routing_opts_> => vec_push![c,antennacumdiffsidearearatios,v],
+  <v:layer_antennadiffarearatio> <mut c:layer_routing_opts_> => vec_push![c,antennadiffarearatios,v],
+  <v:layer_antennacumarearatio> <mut c:layer_routing_opts_> => vec_push![c,antennacumarearatios,v],
+  <v:layer_antennacumdiffarearatio> <mut c:layer_routing_opts_> => vec_push![c,antennacumdiffarearatios,v],
+  <v:layer_antennaareafactor> <mut c:layer_routing_opts_> => vec_push![c,antennaareafactors,v],
+  <v:layer_antennasideareafactor> <mut c:layer_routing_opts_> => vec_push![c,antennasideareafactors,v],
+
+  <v:layer_antennacumroutingpluscut> <mut c:layer_routing_opts_> =>  { c.antennacumroutingpluscut = Some(v) ; c },
+  <v:layer_antennagateplusdiff> <mut c:layer_routing_opts_> =>  { c.antennagateplusdiff = Some(v) ; c },
+  <v:layer_antennaareaminusdiff> <mut c:layer_routing_opts_> =>  { c.antennaareaminusdiff = Some(v) ; c },
+  <v:layer_antennaareadiffreducepwl> <mut c:layer_routing_opts_> =>  { c.antennaareadiffreducepwl = Some(v) ; c },
+  <v:property> <mut c:layer_routing_opts_> => vec_push![c,properties,v],
+  <v:layer_accurrentdensity> <mut c:layer_routing_opts_> =>  { c.accurrentdensity = Some(v) ; c },
+  <v:layer_dccurrentdensity> <mut c:layer_routing_opts_> =>  { c.dccurrentdensity = Some(v) ; c },
+  () => <LayerRoutingOpts as std::default::Default>::default(),
+  ! => panic_with_context!("error parsing layer routing opts", <>),
+};
+layer_routing_opts: LayerRoutingOpts = {
+  <mut o1:layer_routing_opts_>
+  <v:layer_routing_spacingtable> 
+  <o2:layer_routing_opts_>
+    => { 
+      o1.copy(o2);
+      o1.spacingtable = Some(v);
+      o1 
+    },
+  <o1:layer_routing_opts_> => o1
+}
+layer_routing: LayerRouting = {
+  "LAYER" <n:identifier> comment_opt
+  "TYPE" "ROUTING" semicolon 
+    <o:layer_routing_opts>
+   <cn:end_name> 
+    => LayerRouting::new(n,o,cn),
+};
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  End Layer Routing                                                         //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+layer_opts: LayerOpts = {
+  <v:mask> <mut c:layer_opts> => { c.mask = Some(v); c },
+  <v:layer_direction> <mut c:layer_opts> => { c.direction = Some(v); c },
+  <v:layer_pitch> <mut c:layer_opts> => { c.pitch = Some(v); c },
+  <v:layer_width> <mut c:layer_opts> => { c.width = Some(v); c },
+  <v:layer_offset> <mut c:layer_opts> => { c.offset = Some(v); c },
+  <v:layer_diagwidth> <mut c:layer_opts> => { c.diagwidth = Some(v); c },
+  <v:layer_diagpitch> <mut c:layer_opts> => { c.diagpitch = Some(v); c },
+  <v:layer_diagspacing> <mut c:layer_opts> => { c.diagspacing = Some(v); c },
+  <v:layer_diagminedgelength> <mut c:layer_opts> => { c.diagminedgelength = Some(v); c },
+  <v:layer_area> <mut c:layer_opts> => { c.area = Some(v); c },
+  <v:layer_minsize> <mut c:layer_opts> => { c.minsize = Some(v); c },
+
+  <v:layer_cut_spacing> <mut c:layer_opts> => vec_push![c,spacings,v],
+  <v:layer_cut_spacingtable> <mut c:layer_opts> => set_opt![c,spacingtable,v],
+
+  <v:layer_wireextension> <mut c:layer_opts> => { c.wireextension = Some(v); c },
+  <v:layer_minimumcut> <mut c:layer_opts> => { c.minimumcut = Some(v); c },
+  <v:layer_maxwidth> <mut c:layer_opts> => { c.maxwidth = Some(v); c },
+  <v:layer_minwidth> <mut c:layer_opts> => { c.minwidth = Some(v); c },
+  <v:layer_minstep> <mut c:layer_opts> => { c.minstep = Some(v); c },
+  <v:layer_minenclosedarea> <mut c:layer_opts> => { c.minenclosedarea = Some(v); c },
+  <v:layer_protrusionwidth> <mut c:layer_opts> => { c.protrusionwidth = Some(v); c },
+  <v:layer_routing_resistance> <mut c:layer_opts> => { c.resistance = Some(v); c },
+  <v:layer_routing_capacitance> <mut c:layer_opts> => { c.capacitance = Some(v); c },
+  <v:layer_height> <mut c:layer_opts> => { c.height = Some(v); c },
+  <v:layer_thickness> <mut c:layer_opts> => { c.thickness = Some(v); c },
+  <v:layer_shrinkage> <mut c:layer_opts> => { c.shrinkage = Some(v); c },
+  <v:layer_capmultiplier> <mut c:layer_opts> => { c.capmultiplier = Some(v); c },
+  <v:layer_edgecapacitance> <mut c:layer_opts> => { c.edgecapacitance = Some(v); c },
+  <v:layer_minimumdensity> <mut c:layer_opts> => { c.minimumdensity = Some(v); c },
+  <v:layer_maximumdensity> <mut c:layer_opts> => { c.maximumdensity = Some(v); c },
+  <v:layer_densitycheckwindow> <mut c:layer_opts> => { c.densitycheckwindow = Some(v); c },
+  <v:layer_densitycheckstep> <mut c:layer_opts> => { c.densitycheckstep = Some(v); c },
+  <v:layer_fillactivespacing> <mut c:layer_opts> => { c.fillactivespacing = Some(v); c },
+
+  <v:antennamodel> <mut c:layer_opts> => vec_push![c,antennamodels,v],
+  <v:layer_antennaarearatio> <mut c:layer_opts> => vec_push![c,antennaarearatios,v],
+  <v:layer_antennasidearearatio> <mut c:layer_opts> => vec_push![c,antennasidearearatios,v],
+  <v:layer_antennacumsidearearatio> <mut c:layer_opts> => vec_push![c,antennacumsidearearatios,v],
+  <v:layer_antennadiffsidearearatio> <mut c:layer_opts> => vec_push![c,antennadiffsidearearatios,v],
+  <v:layer_antennacumdiffsidearearatio> <mut c:layer_opts> => vec_push![c,antennacumdiffsidearearatios,v],
+  <v:layer_antennadiffarearatio> <mut c:layer_opts> => vec_push![c,antennadiffarearatios,v],
+  <v:layer_antennacumarearatio> <mut c:layer_opts> => vec_push![c,antennacumarearatios,v],
+  <v:layer_antennacumdiffarearatio> <mut c:layer_opts> => vec_push![c,antennacumdiffarearatios,v],
+  <v:layer_antennaareafactor> <mut c:layer_opts> => vec_push![c,antennaareafactors,v],
+  <v:layer_antennasideareafactor> <mut c:layer_opts> => vec_push![c,antennasideareafactors,v],
+
+  <v:layer_antennacumroutingpluscut> <mut c:layer_opts> =>  { c.antennacumroutingpluscut = Some(v) ; c },
+  <v:layer_antennagateplusdiff> <mut c:layer_opts> =>  { c.antennagateplusdiff = Some(v) ; c },
+  <v:layer_antennaareaminusdiff> <mut c:layer_opts> =>  { c.antennaareaminusdiff = Some(v) ; c },
+  <v:layer_antennaareadiffreducepwl> <mut c:layer_opts> =>  { c.antennaareadiffreducepwl = Some(v) ; c },
+  <v:property> <mut c:layer_opts> => vec_push![c,properties,v],
+  <v:layer_accurrentdensity> <mut c:layer_opts> =>  { c.accurrentdensity = Some(v) ; c },
+  <v:layer_dccurrentdensity> <mut c:layer_opts> =>  { c.dccurrentdensity = Some(v) ; c },
+  () => <LayerOpts as std::default::Default>::default(),
+  ! => panic_with_context!("error parsing layer opts", <>),
+};
+
+
+layer: Layer = {
+  layer_cut => Layer::Cut(<>),
+  layer_implant => Layer::Implant(<>),
+  layer_masterslice_overlap => Layer::MasterSlice(<>),
+  layer_routing => Layer::Routing(<>),
+};
+
+
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  End Layers                                                                //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  VIA                                                                       //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+// VIA viaName [DEFAULT]
+//    { VIARULE viaRuleName ;
+//         CUTSIZE xSize ySize ;
+//         LAYERS botMetalLayer cutLayer topMetalLayer ;
+//         CUTSPACING xCutSpacing yCutSpacing ; 
+//         ENCLOSURE xBotEnc yBotEnc xTopEnc yTopEnc ;
+//         [ROWCOL numCutRows numCutCols ;] 
+//         [ORIGIN xOffset yOffset ;] 
+//         [OFFSET xBotOffset yBotOffset xTopOffset yTopOffset ;]
+//         [PATTERN cutPattern ;]
+//    }
+//    | {[RESISTANCE resistValue ;]
+//       {LAYER layerName ;
+//         { RECT [MASK maskNum] pt pt ;
+//         | POLYGON [MASK maskNum] pt pt pt ...;} ...
+//       } ...
+//      }
+//    [PROPERTY propName propVal ;] ... 
+// 
+// END viaName
+
+via_viarule_cutsize: Size = {
+  "CUTSIZE" <x:real> <y:real> semicolon => Size::new(x,y),
+}
+via_viarule_layers: ViaViaRuleLayers = {
+  "LAYERS" <b:identifier> <c:identifier> <t:identifier> semicolon => ViaViaRuleLayers::new(b,c,t),
+}
+via_viarule_cutspacing: Size = {
+  "CUTSPACING" <x:real> <y:real> semicolon => Size::new(x,y),
+}
+via_viarule_enclosure: ViaViaRuleEnclosure = {
+  "ENCLOSURE" <xb:real> <yb:real> <xt:real> <yt:real> semicolon => ViaViaRuleEnclosure::new(xb,yb,xt,yt),
+}
+via_viarule_rowcol: ViaViaRuleRowCol = {
+  "ROWCOL" <r:integer> <c:integer> semicolon => ViaViaRuleRowCol::new(r,c),
+}
+via_viarule_origin: ViaViaRuleOrigin = {
+  "ORIGIN" <x:real> <y:real> semicolon => ViaViaRuleOrigin::new(x,y),
+}
+via_viarule_offset: ViaViaRuleOffset = {
+  "OFFSET" <xb:real> <yb:real> <xt:real> <yt:real> semicolon => ViaViaRuleOffset::new(xb,yb,xt,yt),
+}
+via_viarule_pattern: String = {
+  "PATTERN" <cp:identifier> semicolon => cp,
+}
+via_viarule_opts: ViaViaRuleOpts = {
+  <v:via_viarule_cutsize> <mut o:via_viarule_opts> => set_opt![o,cutsize,v],
+  <v:via_viarule_layers>  <mut o:via_viarule_opts> => set_opt![o,layers,v],
+  <v:via_viarule_cutspacing> <mut o:via_viarule_opts> => set_opt![o,cutspacing,v],
+  <v:via_viarule_enclosure> <mut o:via_viarule_opts> => set_opt![o,enclosure,v],
+  <v:via_viarule_rowcol> <mut o:via_viarule_opts> => set_opt![o,rowcol,v],
+  <v:via_viarule_origin> <mut o:via_viarule_opts> => set_opt![o,origin,v],
+  <v:via_viarule_offset>  <mut o:via_viarule_opts> => set_opt![o,offset,v],
+  <v:via_viarule_pattern> <mut o:via_viarule_opts> => set_opt![o,pattern,v],
+  () => <ViaViaRuleOpts as std::default::Default>::default(),
+}
+via_viarule: ViaViaRule = {
+  "VIARULE" <n:identifier> semicolon
+  <o:via_viarule_opts>
+    => ViaViaRule::new(n,o),
+}
+
+via_shape: Shape = {
+  "RECT" <m:mask_no_semicolon_opt> <x1:real> <y1:real> <x2:real> <y2:real> semicolon => Shape::new(m,ShapeEnum::RECT((x1,y1),(x2,y2))),
+  "POLYGON" <m:mask_no_semicolon_opt> <l:real_list> semicolon => Shape::new(m,ShapeEnum::POLYGON(l)),
+}
+via_shapes: Vec<Shape> = {
+  <v:via_shape> <mut l:via_shapes> => { l.push(v); l },
+  via_shape => vec![<>],
+}
+via_layer: ViaLayer = {
+  "LAYER" <id:identifier> semicolon <s:via_shapes> => ViaLayer::new(id,s),
+}
+
+via_layers: Vec<ViaLayer> = {
+  <v:via_layer> <mut l:via_layers> => { l.push(v); l },
+  via_layer => vec![<>],
+}
+
+via_props: (Option<Foreign>, Option<f32>) = {
+  <r:resistance> <f:foreign> => (Some(f),Some(r)),
+  <f:foreign> <r:resistance> => (Some(f),Some(r)),
+  <r:resistance> => (None,Some(r)),
+  <f:foreign> => (Some(f),None),
+}
+
+via_fixed: ViaFixed = {
+  // trick to make it compile
+  <rf:via_props> <l:via_layers> => ViaFixed::new(rf.0,rf.1,l),
+  <l:via_layers> <rf:via_props> => ViaFixed::new(rf.0,rf.1,l),
+  <l:via_layers> => ViaFixed::new(None,None,l),
+}
+
+via_type: ViaType = {
+  <v:via_viarule> => ViaType::VIARULE(v),
+  <vf:via_fixed> => ViaType::FIXED(vf),
+}
+via: Via = {
+  "VIA" <n:identifier> <d:default> <g:generated> <t:topofstackonly> comment_opt
+  <v:via_type> 
+  <p:property_list_opt>
+    <chk_n:end_name> 
+    => Via::new(n,d,g,t,v,p,chk_n),
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  End VIA                                                                   //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  VIARULE                                                                   //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+// VIARULE viaRuleName
+//    LAYER layerName ;
+//       DIRECTION {HORIZONTAL | VERTICAL} ;
+//       [WIDTH minWidth TO maxWidth ;]
+//    LAYER layerName ;
+//       DIRECTION {HORIZONTAL | VERTICAL} ;
+//       [WIDTH minWidth TO maxWidth ;]
+//    {VIA viaName ;} ...
+//    [PROPERTY propName propVal ;] ... 
+//
+// END viaRuleName
+
+viarule_layer_direction_enum: ViaRuleLayerDirection = {
+  "HORIZONTAL" => ViaRuleLayerDirection::HORIZONTAL,
+  "VERTICAL" => ViaRuleLayerDirection::VERTICAL,
+}
+viarule_layer_width_range: Range<f32> = {
+  "WIDTH" <min:real> "TO" <max:real> semicolon
+    => (min,max),
+}
+viarule_layer_overhang: f32 = {
+  "OVERHANG" <n:real> semicolon => n,
+}
+viarule_layer_metaloverhang: f32 = {
+  "METALOVERHANG" <n:real> semicolon => n,
+}
+viarule_layer_direction: ViaRuleLayerDirection = {
+  "DIRECTION" <d:viarule_layer_direction_enum> semicolon => d
+}
+viarule_layer_enclosure: (f32,f32) = {
+  "ENCLOSURE" <n1:real> <n2:real> semicolon => (n1,n2)
+}
+viarule_layer_opts: ViaRuleLayerOpts = {
+  <v:viarule_layer_direction> <mut o:viarule_layer_opts> => set_opt![o,direction,v],
+  <v:viarule_layer_enclosure> <mut o:viarule_layer_opts> => set_opt![o,enclosure,v],
+  <v:viarule_layer_width_range> <mut o:viarule_layer_opts> => set_opt![o,widthrange,v],
+  <v:viarule_layer_overhang> <mut o:viarule_layer_opts> => set_opt![o,overhang,v],
+  <v:viarule_layer_metaloverhang> <mut o:viarule_layer_opts> => set_opt![o,metaloverhang,v],
+  () => <ViaRuleLayerOpts as std::default::Default>::default()
+}
+viarule_layer: ViaRuleLayer = {
+  "LAYER" <n:identifier> semicolon
+     <o:viarule_layer_opts>
+    => ViaRuleLayer::new(n,o),
+}
+viarule_via: String = {
+  "VIA" <s:identifier> semicolon => s,
+}
+viarule_vias: Vec<String> = {
+  <v:viarule_via> <mut l:viarule_vias> => { l.push(v); l },
+  <v:viarule_via> => vec![v],
+}
+viarule_vias_opt: Option<Vec<String>> = {
+  <l:viarule_vias> => Some(l),
+  () => None,
+}
+
+viarule_generate_cutlayer: ViaRuleGenerateCutLayer = {
+  "LAYER" <n:identifier> semicolon
+  "RECT" <p1:point> <p2:point> semicolon
+  "SPACING" <xs:real> "BY" <ys:real> semicolon
+  <ro:resistance_opt> 
+    => ViaRuleGenerateCutLayer::new(n,Rect::new(p1,p2),(xs,ys),ro),
+};
+
+viarule: ViaRule = {
+  "VIARULE" <n:identifier> <d:default> comment_opt
+    <l1:viarule_layer>
+    <l2:viarule_layer>
+    <v:viarule_vias_opt>
+    <p:property_list_opt>
+  <chk_n:end_name>
+  => ViaRule::new(n,false,d,l1,l2,None,v,p,chk_n),
+}
+
+viarulegenerate: ViaRule = {
+  "VIARULE" <n:identifier> "GENERATE" <d:default> comment_opt
+    <l1:viarule_layer>
+    <l2:viarule_layer>
+    <l3:viarule_generate_cutlayer> 
+    <p:property_list_opt>
+  <chk_n:end_name>
+  => ViaRule::new(n,true,d,l1,l2,Some(l3),None,p,chk_n),
+  "VIARULE" <n:identifier> "GENERATE" <d:default> comment_opt
+    <l1:viarule_layer>
+    <l3:viarule_generate_cutlayer> 
+    <l2:viarule_layer>
+    <p:property_list_opt>
+  <chk_n:end_name>
+  => ViaRule::new(n,true,d,l1,l2,Some(l3),None,p,chk_n),
+  "VIARULE" <n:identifier> "GENERATE" <d:default> comment_opt
+    <l3:viarule_generate_cutlayer> 
+    <l1:viarule_layer>
+    <l2:viarule_layer>
+    <p:property_list_opt>
+  <chk_n:end_name>
+  => ViaRule::new(n,true,d,l1,l2,Some(l3),None,p,chk_n),
+  "VIARULE" <n:identifier> "GENERATE" <d:default> comment_opt
+    <l1:viarule_layer>
+    <l2:viarule_layer>
+    <p:property_list_opt>
+  <chk_n:end_name>
+  => ViaRule::new(n,true,d,l1,l2,None,None,p,chk_n),
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  End VIARULE                                                               //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  NONDEFAULTRULE                                                            //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+// [NONDEFAULTRULE ruleName
+//     [HARDSPACING ;]
+//     {LAYER layerName
+//        WIDTH width ;
+//        [DIAGWIDTH diagWidth ;]
+//        [SPACING minSpacing ;] 
+//        [WIREEXTENSION value ;]
+//     END layerName} ...
+//     [VIA viaStatement] ...
+//     [USEVIA viaName ;] ...
+//     [USEVIARULE viaRuleName ;] ...
+//     [MINCUTS cutLayerName numCuts ;] ...
+//     [PROPERTY propName propValue ;] ... 
+// 
+// END ruleName]
+
+nondefaultrule_layer_opts: NonDefaultRuleLayerOpts = {
+  "DIAGWIDTH" <v:real> semicolon <mut o:nondefaultrule_layer_opts> => set_opt![o,diagwidth,v],
+  "SPACING" <v:real> semicolon <mut o:nondefaultrule_layer_opts> => set_opt![o,spacing,v],
+  "WIREEXTENSION" <v:real> semicolon <mut o:nondefaultrule_layer_opts> => set_opt![o,wireextension,v],
+  () => <NonDefaultRuleLayerOpts as std::default::Default>::default()
+}
+
+nondefaultrule_layer: NonDefaultRuleLayer = {
+  "LAYER" <n:identifier> comment_opt
+  "WIDTH" <w:real> semicolon
+  <o:nondefaultrule_layer_opts>
+  //<o:layer_opts>
+  <chk_n:end_name>
+    => NonDefaultRuleLayer::new(n,w,o,chk_n),
+}
+
+nondefaultrule_opts: NonDefaultRuleOpts = {
+  "HARDSPACING" semicolon <mut o:nondefaultrule_opts> => set_opt![o,hardspacing,true],
+  <v:nondefaultrule_layer> <mut o:nondefaultrule_opts> => vec_push![o,layers,v],
+  <v:via> <mut o:nondefaultrule_opts> => vec_push![o,vias,v],
+  "USEVIA" <n:identifier> semicolon <mut o:nondefaultrule_opts> => vec_push![o,usevias,n],
+  "USEVIARULE" <n:identifier> semicolon <mut o:nondefaultrule_opts> => vec_push![o,useviarules,n],
+  <v:mincuts> <mut o:nondefaultrule_opts> => vec_push![o,mincuts,v],
+  <v:property> <mut o:nondefaultrule_opts> => vec_push![o,properties,v],
+  () => <NonDefaultRuleOpts as std::default::Default>::default()
+}
+
+nondefaultrule: NonDefaultRule= {
+  "NONDEFAULTRULE" <n:identifier> comment_opt
+    <o:nondefaultrule_opts>
+  <chk_n:end_name>
+    => NonDefaultRule::new(n,o,chk_n),
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  End NONDEFAULTRULE                                                        //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  Define                                                                    //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+// TODO
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  End Define                                                                //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  Site                                                                      //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+// SITE siteName
+//     CLASS {PAD | CORE} ;
+//     [SYMMETRY {X | Y | R90} ... ;]
+//     [ROWPATTERN {previousSiteName siteOrient} ... ;]
+//     SIZE width BY height ; 
+// END siteName
+
+site_class: SiteClass = {
+  "PAD" => SiteClass::PAD,
+  "pad" => SiteClass::PAD,
+  "CORE" => SiteClass::CORE,
+  "core" => SiteClass::CORE,
+}
+
+site_opts: SiteOpts = {
+  "CLASS" <c:site_class> semicolon <mut o:site_opts> => set_opt![o,class,c],
+  "SIZE" <w:real> "BY" <h:real> semicolon <mut o:site_opts> => set_opt![o,size,Size::new(w,h)],
+  <s:symmetry> <mut o:site_opts> => set_opt![o,symmetries,s],
+  <r:rowpattern> <mut o:site_opts> => set_opt![o,rowpattern,r],
+  () => <SiteOpts as std::default::Default>::default()
+}
+
+site: Site = {
+  "SITE" <n:identifier> 
+    <o:site_opts>
+    "END" <chk_n:identifier>
+      => Site::new(n,o,chk_n),
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  End Site                                                                  //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  MACRO                                                                     //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+// MACRO macroName
+//    [CLASS 
+//      { COVER [BUMP]
+//      | RING 
+//      | BLOCK [BLACKBOX | SOFT]
+//      | PAD [INPUT | OUTPUT |INOUT | POWER | SPACER | AREAIO]
+//      | CORE [FEEDTHRU | TIEHIGH | TIELOW | SPACER | ANTENNACELL | WELLTAP]
+//      | ENDCAP {PRE | POST | TOPLEFT | TOPRIGHT | BOTTOMLEFT | BOTTOMRIGHT} 
+//      } 
+//    ;]
+//    [FIXEDMASK ;]
+//    [FOREIGN foreignCellName [pt [orient]] ;] ... 
+//    [ORIGIN pt ;]
+//    [EEQ macroName ;]
+//    [SIZE width BY height ;]
+//    [SYMMETRY {X | Y | R90} ... ;]
+//    [SITE siteName [sitePattern] ;] ...
+//    [PIN statement] ...
+//    [OBS statement] ...
+//    [DENSITY statement] ...
+//    [PROPERTY propName propVal ;] ...
+// END macroName
+
+macro_class_cover: MacroClassCover = {
+  "COVER" => MacroClassCover::new(false),
+  "COVER" "BUMP" => MacroClassCover::new(true),
+}
+
+macro_class_block_enum: MacroClassBlockEnum = {
+  "BLACKBOX" => MacroClassBlockEnum::BLACKBOX,
+  "SOFT" => MacroClassBlockEnum::SOFT,
+}
+macro_class_block: MacroClassBlock = {
+  "BLOCK" <t:macro_class_block_enum> => MacroClassBlock::new(Some(t)),
+  "BLOCK" => MacroClassBlock::new(None),
+}
+
+macro_class_pad_enum: MacroClassPadEnum = {
+  "INPUT" => MacroClassPadEnum::INPUT,
+  "input" => MacroClassPadEnum::INPUT,
+  "OUTPUT" => MacroClassPadEnum::OUTPUT,
+  "output" => MacroClassPadEnum::OUTPUT,
+  "INOUT" => MacroClassPadEnum::INOUT,
+  "inout" => MacroClassPadEnum::INOUT,
+  "POWER" => MacroClassPadEnum::POWER,
+  "power" => MacroClassPadEnum::POWER,
+  "SPACER" => MacroClassPadEnum::SPACER,
+  "spacer" => MacroClassPadEnum::SPACER,
+  "AREAIO" => MacroClassPadEnum::AREAIO,
+  "areaio" => MacroClassPadEnum::AREAIO,
+}
+macro_class_pad: MacroClassPad = {
+  "PAD" <t:macro_class_pad_enum> => MacroClassPad::new(Some(t)),
+  "pad" <t:macro_class_pad_enum> => MacroClassPad::new(Some(t)),
+  "PAD" => MacroClassPad::new(None),
+  "pad" => MacroClassPad::new(None),
+}
+
+macro_class_core_enum: MacroClassCoreEnum = {
+  "FEEDTHRU" => MacroClassCoreEnum::FEEDTHRU,
+  "feedthru" => MacroClassCoreEnum::FEEDTHRU,
+  "TIEHIGH" => MacroClassCoreEnum::TIEHIGH,
+  "tiehigh" => MacroClassCoreEnum::TIEHIGH,
+  "TIELOW" => MacroClassCoreEnum::TIELOW,
+  "tielow" => MacroClassCoreEnum::TIELOW,
+  "SPACER" => MacroClassCoreEnum::SPACER,
+  "spacer" => MacroClassCoreEnum::SPACER,
+  "ANTENNACELL" => MacroClassCoreEnum::ANTENNACELL,
+  "antennacell" => MacroClassCoreEnum::ANTENNACELL,
+  "WELLTAP" => MacroClassCoreEnum::WELLTAP,
+  "welltap" => MacroClassCoreEnum::WELLTAP,
+}
+macro_class_core: MacroClassCore = {
+  "CORE" <t:macro_class_core_enum> => MacroClassCore::new(Some(t)),
+  "core" <t:macro_class_core_enum> => MacroClassCore::new(Some(t)),
+  "CORE" => MacroClassCore::new(None),
+  "core" => MacroClassCore::new(None),
+}
+
+macro_class_endcap_enum: MacroClassEndCap = {
+  "PRE" => MacroClassEndCap::PRE,
+  "POST" => MacroClassEndCap::POST,
+  "TOPLEFT" => MacroClassEndCap::TOPLEFT,
+  "TOPRIGHT" => MacroClassEndCap::TOPRIGHT,
+  "BOTTOMLEFT" => MacroClassEndCap::BOTTOMLEFT,
+  "BOTTOMRIGHT" => MacroClassEndCap::BOTTOMRIGHT,
+}
+macro_class_endcap: MacroClassEndCap = {
+  "ENDCAP" <t:macro_class_endcap_enum> => t,
+}
+
+macro_class_enum: MacroClass = {
+  <v:macro_class_cover> => MacroClass::COVER(v),
+  "RING" => MacroClass::RING,
+  <v:macro_class_block> => MacroClass::BLOCK(v),
+  <v:macro_class_pad> => MacroClass::PAD(v),
+  <v:macro_class_core> => MacroClass::CORE(v),
+  <v:macro_class_endcap> => MacroClass::ENDCAP(v),
+}
+macro_class: MacroClass = {
+  "CLASS" <t:macro_class_enum> semicolon => t,
+}
+
+foreign: Foreign = {
+  "FOREIGN" <n:identifier> <p:point_orient_no_semicolon> semicolon
+    => Foreign::new(n,Some(p)),
+  "FOREIGN" <n:identifier> semicolon
+    => Foreign::new(n,None),
+}
+
+origin: Point = {
+  "ORIGIN" <p:point> semicolon => p,
+}
+macro_eeq: String = {
+  "EEQ" <p:identifier> semicolon => p,
+}
+size: Size = {
+  "SIZE" <w:real> "BY" <h:real> semicolon
+    => Size::new(w,h),
+}
+
+macro_site: MacroSite = {
+  "SITE" <n:identifier> <p:site_pattern> semicolon
+    => MacroSite::new(n,Some(p)),
+  "SITE" <n:identifier> semicolon
+    => MacroSite::new(n,None),
+}
+
+// [PIN pinName
+//    [TAPERRULE ruleName ;]
+//    [DIRECTION {INPUT | OUTPUT [TRISTATE] | INOUT | FEEDTHRU} ;]
+//    [USE { SIGNAL | ANALOG | POWER | GROUND | CLOCK } ;] 
+//    [NETEXPR "netExprPropName defaultNetName" ;]
+//    [SUPPLYSENSITIVITY powerPinName ;]
+//    [GROUNDSENSITIVITY groundPinName ;]
+//    [SHAPE {ABUTMENT | RING | FEEDTHRU} ;]
+//    [MUSTJOIN pinName ;]
+//    {PORT 
+//      [CLASS {NONE | CORE | BUMP} ;] 
+//      {layerGeometries} ... 
+//     END} ... 
+//    [PROPERTY propName propVal ;] ...
+//    [PROPERTY LEF58_VIAINPINONLY
+//    "VIAINPINONLY
+//    ; " ;]
+//    [ANTENNAPARTIALMETALAREA value [LAYER layerName] ;] ...
+//    [ANTENNAPARTIALMETALSIDEAREA value [LAYER layerName] ;] ...
+//    [ANTENNAPARTIALCUTAREA value [LAYER layerName] ;] ...
+//    [ANTENNADIFFAREA value [LAYER layerName] ;] ...
+//    [ANTENNAMODEL {OXIDE1 | OXIDE2 | OXIDE3 | OXIDE4} ;] ...
+//    [ANTENNAGATEAREA value [LAYER layerName] ;] ...
+//    [ANTENNAMAXAREACAR value LAYER layerName ;] ...
+//    [ANTENNAMAXSIDEAREACAR value LAYER layerName ;] ...
+//    [ANTENNAMAXCUTCAR value LAYER layerName ;] ... 
+//
+// END pinName]
+
+macro_pin_taperrule: String = {
+  "TAPERRULE" <n:identifier> semicolon => n
+}
+macro_pin_direction_enum: MacroPinDirection = {
+  "INPUT" => MacroPinDirection::INPUT,
+  "OUTPUT" tristate => MacroPinDirection::OUTPUT(MacroPinDirectionOutput::new(true)),
+  "OUTPUT" => MacroPinDirection::OUTPUT(MacroPinDirectionOutput::new(false)),
+  "INOUT" => MacroPinDirection::INOUT,
+  "FEEDTHRU" => MacroPinDirection::FEEDTHRU,
+}
+macro_pin_direction: MacroPinDirection = {
+  "DIRECTION" <v:macro_pin_direction_enum> semicolon => v,
+}
+macro_pin_use_enum: MacroPinUse = {
+  "SIGNAL" => MacroPinUse::SIGNAL,
+  "signal" => MacroPinUse::SIGNAL,
+  "ANALOG" => MacroPinUse::ANALOG,
+  "analog" => MacroPinUse::ANALOG,
+  "POWER" => MacroPinUse::POWER,
+  "power" => MacroPinUse::POWER,
+  "GROUND" => MacroPinUse::GROUND,
+  "ground" => MacroPinUse::GROUND,
+  "CLOCK" => MacroPinUse::CLOCK,
+  "clock" => MacroPinUse::CLOCK,
+}
+macro_pin_use: MacroPinUse = {
+  "USE" <v:macro_pin_use_enum> semicolon => v,
+  "use" <v:macro_pin_use_enum> semicolon => v,
+}
+
+macro_pin_netexpr_: MacroPinNetExpr = {
+  <s:string> semicolon
+    => {
+      let parts = s.split(" ");
+      let clc = parts.collect::<Vec<&str>>();
+      MacroPinNetExpr::new(clc[0].to_string(),clc[1].to_string())
+    },
+}
+macro_pin_netexpr: MacroPinNetExpr = {
+  "NETEXPR" <n:macro_pin_netexpr_> => n,
+  "netexpr" <n:macro_pin_netexpr_> => n,
+}
+macro_pin_supplysensitivity: String = {
+  "SUPPLYSENSITIVITY" <n:identifier> semicolon => n,
+  "supplysensitivity" <n:identifier> semicolon => n,
+}
+macro_pin_groundsensitivity: String = {
+  "GROUNDSENSITIVITY" <n:identifier> semicolon => n,
+  "groundsensitivity" <n:identifier> semicolon => n,
+}
+
+macro_pin_shape_enum: MacroPinShape = {
+  "ABUTMENT" => MacroPinShape::ABUTMENT,
+  "abutment" => MacroPinShape::ABUTMENT,
+  "RING" => MacroPinShape::RING,
+  "ring" => MacroPinShape::RING,
+  "FEEDTHRU" => MacroPinShape::FEEDTHRU,
+  "feedthru" => MacroPinShape::FEEDTHRU,
+}
+macro_pin_shape: MacroPinShape = {
+  "SHAPE" <v:macro_pin_shape_enum> semicolon => v,
+  "shape" <v:macro_pin_shape_enum> semicolon => v,
+}
+
+macro_pin_mustjoin: String = {
+  "MUSTJOIN" <n:identifier> semicolon => n,
+  "mustjoin" <n:identifier> semicolon => n,
+}
+
+macro_pin_port_class_enum: MacroPinPortClass = {
+  "NONE" => MacroPinPortClass::NONE,
+  "none" => MacroPinPortClass::NONE,
+  "CORE" => MacroPinPortClass::CORE,
+  "core" => MacroPinPortClass::CORE,
+  "BUMP" => MacroPinPortClass::BUMP,
+  "bump" => MacroPinPortClass::BUMP,
+}
+macro_pin_port_class: MacroPinPortClass = {
+  "CLASS" <v:macro_pin_port_class_enum> semicolon => v,
+  "class" <v:macro_pin_port_class_enum> semicolon => v,
+}
+macro_pin_port_class_opt: Option<MacroPinPortClass> = {
+  macro_pin_port_class => Some(<>),
+  () => None,
+}
+
+// { LAYER layerName
+//         [EXCEPTPGNET]
+//         [SPACING minSpacing | DESIGNRULEWIDTH value] ;
+//       [WIDTH width ;]
+//       { PATH [MASK maskNum] pt ... ; 
+//       | PATH [MASK maskNum] ITERATE pt ... stepPattern ;
+//       | RECT [MASK maskNum] pt pt ; 
+//       | RECT [MASK maskNum] ITERATE pt pt stepPattern ;
+//       | POLYGON [MASK maskNum] pt pt pt pt ... ;
+//       | POLYGON [MASK maskNum] ITERATE pt pt pt pt ... stepPattern ;
+//       } ...
+//     | VIA [MASK viaMaskNum] pt viaName ;
+//     | VIA ITERATE [MASK viaMaskNum] pt viaName stepPattern ;
+//     } ...
+spacing_designrulewidth: Option<LayerGeomDesign> = {
+  <s:simple_spacing_no_semicolon> => Some(LayerGeomDesign::SPACING(s)),
+  <d:designrulewidth_no_semicolon> => Some(LayerGeomDesign::DESIGNRULEWIDTH(d)),
+  () => None,
+}
+
+layer_geom_shape: LayerGeomShape = {
+  "PATH" <m:mask_no_semicolon_opt> <p:point_list> semicolon
+    => LayerGeomShape::PATH(LayerGeomShapePath::new(m,p,None)),
+  "PATH" <m:mask_no_semicolon_opt> "ITERATE" <p:point_list> <s:step_pattern_opt> semicolon
+    => LayerGeomShape::PATH(LayerGeomShapePath::new(m,p,s)),
+
+  "RECT" <m:mask_no_semicolon_opt> <p1:point> <p2:point> semicolon
+    => LayerGeomShape::RECT(LayerGeomShapeRect::new(m,Rect::new(p1,p2),None)),
+  "RECT" <m:mask_no_semicolon_opt> "ITERATE" <p1:point> <p2:point> <s:step_pattern_opt> semicolon
+    => LayerGeomShape::RECT(LayerGeomShapeRect::new(m,Rect::new(p1,p2),s)),
+
+  "POLYGON" <m:mask_no_semicolon_opt> <p:point_list> semicolon
+    => LayerGeomShape::POLYGON(LayerGeomShapePolygon::new(m,Polygon::new(p),None)),
+  "POLYGON" <m:mask_no_semicolon_opt> "ITERATE" <p:point_list> <s:step_pattern_opt> semicolon
+    => LayerGeomShape::POLYGON(LayerGeomShapePolygon::new(m,Polygon::new(p),s)),
+}
+layer_geom_shape_list: Vec<LayerGeomShape> = {
+  <v:layer_geom_shape> <mut l:layer_geom_shape_list> => { l.push(v); l },
+  <v:layer_geom_shape> => vec![v],
+}
+
+layer_geom_layer: LayerGeomLayer = {
+  "LAYER" <n:identifier> <e:exceptpgnet> <sd:spacing_designrulewidth> semicolon
+    <w:layer_width_opt>
+    <shapes:layer_geom_shape_list>
+      => LayerGeomLayer::new(n,e,sd,w,shapes),
+}
+layer_geom_via: LayerGeomVia = {
+  "VIA" <m:mask_no_semicolon_opt> <p:point> <n:identifier> semicolon
+    => LayerGeomVia::new(m,p,n,None),
+  "VIA ITERATE" <m:mask_no_semicolon_opt> <p:point> <n:identifier> <s:step_pattern_opt> semicolon
+    => LayerGeomVia::new(m,p,n,s),
+}
+layer_geom: LayerGeom = {
+  <l:layer_geom_layer> => LayerGeom::LAYER(l),
+  <v:layer_geom_via> => LayerGeom::VIA(v),
+}
+layer_geom_list: Vec<LayerGeom> = {
+  <v:layer_geom> <mut l:layer_geom_list> => { l.push(v); l },
+  <v:layer_geom> => vec![v],
+}
+
+macro_pin_port: MacroPinPort = {
+  "PORT" comment_opt 
+    <c:macro_pin_port_class_opt> 
+    <g:layer_geom_list>
+  end
+    => MacroPinPort::new(c,g),
+}
+
+macro_pin_opts: MacroPinOpts = {
+  <v:macro_pin_taperrule> <mut o:macro_pin_opts> => { o.taperrule = Some(v); o },
+  <v:macro_pin_direction> <mut o:macro_pin_opts> => { o.direction = Some(v); o },
+  <v:macro_pin_use> <mut o:macro_pin_opts> => { o.puse = Some(v); o },
+  <v:macro_pin_netexpr> <mut o:macro_pin_opts> => { o.netexpr = Some(v); o },
+  <v:macro_pin_supplysensitivity> <mut o:macro_pin_opts> => { o.supplysensitivity = Some(v); o },
+  <v:macro_pin_groundsensitivity> <mut o:macro_pin_opts> => { o.groundsensitivity = Some(v); o },
+  <v:macro_pin_shape> <mut o:macro_pin_opts> => { o.shape = Some(v); o },
+  <v:macro_pin_mustjoin> <mut o:macro_pin_opts> => { o.mustjoin = Some(v); o },
+  <v:antennapartialmetalarea> <mut o:macro_pin_opts> => { o.antennapartialmetalarea = Some(v); o },
+  <v:antennapartialmetalsidearea> <mut o:macro_pin_opts> => { o.antennapartialmetalsidearea = Some(v); o },
+  <v:antennapartialcutarea> <mut o:macro_pin_opts> => { o.antennapartialcutarea= Some(v); o },
+  <v:antennadiffarea> <mut o:macro_pin_opts> => { o.antennadiffarea= Some(v); o },
+  <v:antennamodel> <mut o:macro_pin_opts> => { o.antennamodel = Some(v); o },
+  <v:antennagatearea> <mut o:macro_pin_opts> => { o.antennagatearea = Some(v); o },
+  <v:antennamaxareacar> <mut o:macro_pin_opts> => { o.antennamaxareacar = Some(v); o },
+  <v:antennamaxsideareacar> <mut o:macro_pin_opts> => { o.antennamaxsideareacar = Some(v); o },
+  <v:antennamaxcutcar> <mut o:macro_pin_opts> => { o.antennamaxcutcar = Some(v); o },
+  <v:macro_pin_port> <mut o:macro_pin_opts> => vec_push![o,ports,v],
+  <v:property> <mut o:macro_pin_opts> => vec_push![o,properties,v],
+  () => <MacroPinOpts as std::default::Default>::default()
+}
+macro_pin: MacroPin = {
+  "PIN" <n:identifier>
+    <o:macro_pin_opts>
+    "END" <chk_n:identifier>
+    => MacroPin::new(n,o,chk_n),
+}
+
+macro_obs: MacroObstruction = {
+  "OBS"
+    <g:layer_geom_list>
+    "END" => MacroObstruction::new(g),
+}
+
+// [DENSITY
+//    {LAYER layerName ;
+//       {RECT x1 y1 x2 y2 densityValue ;} ...
+//    } ...
+// END] ...
+
+macro_density_layer_rect: MacroDensityLayerRect = {
+  "RECT" <x1:real> <y1:real> <x2:real> <y2:real> <d:real> semicolon
+    => MacroDensityLayerRect::new(Point::new(x1,y1,None), Point::new(x2,y2,None), d),
+};
+macro_density_layer_rect_list: Vec<MacroDensityLayerRect> = {
+  <v:macro_density_layer_rect> <mut l:macro_density_layer_rect_list> => { l.push(v); l },
+  <v:macro_density_layer_rect> => vec![v],
+}
+
+macro_density_layer: MacroDensityLayer = {
+  "LAYER" <n:identifier> semicolon
+    <l:macro_density_layer_rect_list> 
+    => MacroDensityLayer::new(n,l),
+}
+macro_density_layer_list: Vec<MacroDensityLayer> = {
+  <v:macro_density_layer> <mut l:macro_density_layer_list> => { l.push(v); l },
+  <v:macro_density_layer> => vec![v],
+}
+
+macro_density: MacroDensity = {
+  "DENSITY"
+    <l:macro_density_layer_list>
+  "END"
+    => MacroDensity::new(l),
+}
+
+//    [FOREIGN foreignCellName [pt [orient]] ;] ... 
+//    [ORIGIN pt ;]
+//    [EEQ macroName ;]
+//    [SIZE width BY height ;]
+//    [SYMMETRY {X | Y | R90} ... ;]
+//    [SITE siteName [sitePattern] ;] ...
+//    [PIN statement] ...
+//    [OBS statement] ...
+//    [DENSITY statement] ...
+//    [PROPERTY propName propVal ;] ...
+macro_opts: MacroOpts = {
+  <v:macro_class> <mut o:macro_opts> => { o.class = Some(v); o },
+  <v:foreign> <mut o:macro_opts> => vec_push![o,foreigns,v],
+  <v:origin> <mut o:macro_opts> => { o.origin = Some(v); o },
+  <v:macro_eeq> <mut o:macro_opts> => { o.eeq = Some(v); o },
+  <v:size> <mut o:macro_opts> => { o.size = Some(v); o },
+  <v:symmetry> <mut o:macro_opts> => { o.symmetries = Some(v); o },
+  <v:macro_site> <mut o:macro_opts> => vec_push![o,sites,v],
+  <v:macro_pin> <mut o:macro_opts> => vec_push![o,pins,v],
+  <v:macro_obs> <mut o:macro_opts> => vec_push![o,obstructions,v],
+  <v:macro_density> <mut o:macro_opts> => vec_push![o,densities,v],
+  <v:fixedmask> <mut o:macro_opts> => { o.fixedmask = Some(true); o },
+  <v:property> <mut o:macro_opts> => vec_push![o,properties,v],
+  () => <MacroOpts as std::default::Default>::default()
+}
+
+macro: Macro = {
+  "MACRO" <n:identifier>
+    <o:macro_opts>
+    "END" <chk_n:identifier>
+      => Macro::new(n,o,chk_n),
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  SPACINGS section
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+spacing_samenet: bool = {
+  "SAMENET" => true,
+}
+spacing: Spacing = {
+    <sm:spacing_samenet?> <l1:identifier> <l2:identifier> <s:real> semicolon
+    => Spacing::new(sm, l1, l2, s)
+}
+spacings: Vec<Spacing> = {
+  "SPACING"
+  <ss:spacing*>
+  "END" "SPACING"
+    => ss,
+};
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  End MACRO                                                                 //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+body: LEF = {
+  // Header 
+  <v:version> <mut b:body> => { b.version = v; b },
+  <v:namescasesensitive> <mut b:body> => set_opt![b,namescasesensitive,v],
+  <v:nowireextensionatpin> <mut b:body> => set_opt![b,nowireextensionatpin,v],
+  <v:busbitchars> <mut b:body> => { b.busbitchars = Some(v); b },
+  <v:dividerchar> <mut b:body> => { b.dividerchar = Some(v); b },
+  <v:units> <mut b:body> => set_opt![b,units,v],
+  <v:manufacturinggrid> <mut b:body> => set_opt![b,manufacturinggrid,v],
+  <v:useminspacingobs> <mut b:body> => set_opt![b,useminspacingobs,v],
+  <v:useminspacingpin> <mut b:body> => set_opt![b,useminspacingpin,v],
+  <v:clearancemeasure> <mut b:body> => set_opt![b,clearancemeasure,v],
+  fixedmask <mut b:body> => set_opt![b,fixedmask,true],
+  <v:maxviastack> <mut b:body> => set_opt![b,maxviastack,v],
+  // End Header
+
+  <v:propertydefinitions> <mut b:body> => set_opt![b,propertydefinitions,v],
+  <v:spacings> <mut b:body> => set_opt![b,spacings,v],
+  <v:layer> <mut c:body> => vec_push![c,layers,v],
+  <v:via> <mut c:body> => vec_push![c,vias,v],
+  <v:viarule> <mut c:body> => vec_push![c,viarules,v],
+  <v:viarulegenerate> <mut c:body> => vec_push![c,viarules,v],
+  <v:nondefaultrule> <mut c:body> => vec_push![c,nondefaultrules,v],
+  <v:site> <mut c:body> => vec_push![c,sites,v],
+  <v:macro> <mut c:body> => vec_push![c,macros,v],
+  () => <LEF as std::default::Default>::default(),
+  ! => panic_with_context!("error parsing body", <>),
+};
+
+pub lef: LEF = {
+  comment <b:lef> => b,
+  <b:body> "END LIBRARY" comment_opt => b,
+};
