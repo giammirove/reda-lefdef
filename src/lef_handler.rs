@@ -108,10 +108,10 @@ impl Units {
 #[derive(Debug, Default)]
 pub struct LayerCutSpacingLayer {
     name: String,
-    stack: bool,
+    stack: Option<bool>,
 }
 impl LayerCutSpacingLayer {
-    pub fn new(name: String, stack: bool) -> Self {
+    pub fn new(name: String, stack: Option<bool>) -> Self {
         Self { name, stack }
     }
 }
@@ -120,10 +120,10 @@ impl LayerCutSpacingLayer {
 pub struct LayerCutSpacingAdjacentCut {
     num: i32,
     within: f32,
-    exceptsamepgnet: bool,
+    exceptsamepgnet: Option<bool>,
 }
 impl LayerCutSpacingAdjacentCut {
-    pub fn new(num: i32, within: f32, exceptsamepgnet: bool) -> Self {
+    pub fn new(num: i32, within: f32, exceptsamepgnet: Option<bool>) -> Self {
         Self {
             num,
             within,
@@ -143,15 +143,15 @@ pub enum LayerCutSpacingEnum {
 #[derive(Debug)]
 pub struct LayerCutSpacing {
     spacing: f32,
-    centertocenter: bool,
-    samenet: bool,
+    centertocenter: Option<bool>,
+    samenet: Option<bool>,
     opts: Option<LayerCutSpacingEnum>,
 }
 impl LayerCutSpacing {
     pub fn new(
         spacing: f32,
-        centertocenter: bool,
-        samenet: bool,
+        centertocenter: Option<bool>,
+        samenet: Option<bool>,
         opts: Option<LayerCutSpacingEnum>,
     ) -> Self {
         Self {
@@ -206,14 +206,14 @@ pub struct LayerArraySpacing {
     longarray: bool,
     width: Option<f32>,
     cutspacing: f32,
-    arraycuts: Option<Vec<LayerArraySpacingArrayCuts>>,
+    arraycuts: Vec<LayerArraySpacingArrayCuts>,
 }
 impl LayerArraySpacing {
     pub fn new(
         longarray: bool,
         width: Option<f32>,
         cutspacing: f32,
-        arraycuts: Option<Vec<LayerArraySpacingArrayCuts>>,
+        arraycuts: Vec<LayerArraySpacingArrayCuts>,
     ) -> Self {
         Self {
             longarray,
@@ -274,6 +274,9 @@ impl LayerEnclosure {
             overhang2,
             width_length,
         }
+    }
+    pub fn get_overhang(&self) -> (f32, f32) {
+        (self.overhang1, self.overhang2)
     }
 }
 
@@ -674,10 +677,10 @@ impl LayerRoutingSize {
 #[derive(Debug)]
 pub struct LayerRoutingMinSize {
     size1: LayerRoutingSize,
-    size2: Option<Vec<LayerRoutingSize>>,
+    size2: Vec<LayerRoutingSize>,
 }
 impl LayerRoutingMinSize {
-    pub fn new(size1: LayerRoutingSize, size2: Option<Vec<LayerRoutingSize>>) -> Self {
+    pub fn new(size1: LayerRoutingSize, size2: Vec<LayerRoutingSize>) -> Self {
         Self { size1, size2 }
     }
 }
@@ -1386,7 +1389,7 @@ pub struct Via {
     generated: bool,
     topofstackonly: bool,
     vtype: ViaType,
-    properties: Option<Vec<Property>>,
+    properties: Vec<Property>,
 }
 impl Via {
     pub fn new(
@@ -1395,7 +1398,7 @@ impl Via {
         generated: bool,
         topofstackonly: bool,
         vtype: ViaType,
-        properties: Option<Vec<Property>>,
+        properties: Vec<Property>,
         chk_name: String,
     ) -> Self {
         if name != chk_name {
@@ -1467,8 +1470,8 @@ pub struct ViaRule {
     layer1: ViaRuleLayer,
     layer2: ViaRuleLayer,
     cutlayer: Option<ViaRuleGenerateCutLayer>,
-    vias: Option<Vec<String>>,
-    properties: Option<Vec<Property>>,
+    vias: Vec<String>,
+    properties: Vec<Property>,
 }
 impl ViaRule {
     pub fn new(
@@ -1478,8 +1481,8 @@ impl ViaRule {
         layer1: ViaRuleLayer,
         layer2: ViaRuleLayer,
         cutlayer: Option<ViaRuleGenerateCutLayer>,
-        vias: Option<Vec<String>>,
-        properties: Option<Vec<Property>>,
+        vias: Vec<String>,
+        properties: Vec<Property>,
         chk_name: String,
     ) -> Self {
         if name != chk_name {
@@ -2063,11 +2066,15 @@ impl Macro {
         None
     }
 
-    pub fn is_in_site(&self, site_name: &str) -> bool {
-        self.opts
-            .sites
-            .as_ref()
-            .is_some_and(|sites| sites.iter().any(|s| s.name == site_name))
+    pub fn is_in_site(&self, site_name: Option<String>) -> bool {
+        match site_name {
+            None => true,
+            Some(site_name) => self
+                .opts
+                .sites
+                .as_ref()
+                .is_some_and(|sites| sites.iter().any(|s| s.name == site_name)),
+        }
     }
 }
 
@@ -2235,14 +2242,22 @@ pub struct Spacing {
     layer1: String,
     layer2: String,
     spacing: f32,
+    stack: Option<bool>,
 }
 impl Spacing {
-    pub fn new(samenet: Option<bool>, layer1: String, layer2: String, spacing: f32) -> Self {
+    pub fn new(
+        samenet: Option<bool>,
+        layer1: String,
+        layer2: String,
+        spacing: f32,
+        stack: Option<bool>,
+    ) -> Self {
         Self {
             samenet,
             layer1,
             layer2,
             spacing,
+            stack,
         }
     }
 }

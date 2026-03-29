@@ -28,39 +28,110 @@ match {
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-
-identifier: String = {
-  // cant begin with a number
-  r#"[^"\s\t\n\*\d\+-][^"\s\t\n\*]*"# => <>.to_string(),
-  // compile time really slow with size bound ... :(
-  // r#"[^"^\s^\t^\n][^\s^\t^\n]{0,2048}"# => <>.to_string(),
-};
-
-pin_name: String = {
-  // if it is a lexex token => and it is used as identifier => it will not be parsed correctly
-  // e.g. ( inst E ), E is a type of orient => lexer token, but in this case it is used as identifier => confusion
-
-  "X" => <>.to_string(),
-  "Y" => <>.to_string(),
-
-  "N" => <>.to_string(),
-  "S" => <>.to_string(),
-  "E" => <>.to_string(),
-  "W" => <>.to_string(),
+keyword: String = {
+  "TYPE" => <>.to_string(),
+  "OVERLAP" => <>.to_string(),
+  "DEFAULT" => <>.to_string(),
+  "CORE" => <>.to_string(),
+  "PAD" => <>.to_string(),
+  "COVER" => <>.to_string(),
+  "END" => <>.to_string(),
+  "CLOCK" => <>.to_string(),
   "FN" => <>.to_string(),
   "FS" => <>.to_string(),
   "FE" => <>.to_string(),
   "FW" => <>.to_string(),
-
-  "SIGNAL" => <>.to_string(), 
-  "POWER" => <>.to_string(),
-  "GROUND" => <>.to_string(),
-  "CLOCK" => <>.to_string(),
-  "TIEOFF" => <>.to_string(),
-  "ANALOG" => <>.to_string(),
-  "SCAN" => <>.to_string(),
+  "N" => <>.to_string(),
+  "S" => <>.to_string(),
+  "E" => <>.to_string(),
+  "W" => <>.to_string(),
+  "ON" => <>.to_string(),
+  "OFF" => <>.to_string(),
+  "X" => <>.to_string(),
+  "Y" => <>.to_string(),
+  "R90" => <>.to_string(),
+  "INPUT" => <>.to_string(),
+  "OUTPUT" => <>.to_string(),
+  "INOUT" => <>.to_string(),
   "RESET" => <>.to_string(),
+  "POWER" => <>.to_string(),
+  "SPACER" => <>.to_string(),
+  "AREAIO" => <>.to_string(),
+  "FEEDTHRU" => <>.to_string(),
+  "TIEHIGH" => <>.to_string(),
+  "TIELOW" => <>.to_string(),
+  "ANTENNACELL" => <>.to_string(),
+  "WELLTAP" => <>.to_string(),
+  "PRE" => <>.to_string(),
+  "POST" => <>.to_string(),
+  "TOPLEFT" => <>.to_string(),
+  "TOPRIGHT" => <>.to_string(),
+  "BOTTOMLEFT" => <>.to_string(),
+  "BOTTOMRIGHT" => <>.to_string(),
+  "SIGNAL" => <>.to_string(),
+  "ANALOG" => <>.to_string(),
+  "GROUND" => <>.to_string(),
+  "ABUTMENT" => <>.to_string(),
+  "RING" => <>.to_string(),
+  "NONE" => <>.to_string(),
+  "BUMP" => <>.to_string(),
+  "TRISTATE" => <>.to_string(),
+  "HORIZONTAL" => <>.to_string(),
+  "VERTICAL" => <>.to_string(),
+  "DIAG45" => <>.to_string(),
+  "DIAG135" => <>.to_string(),
+  "MASTERSLICE" => <>.to_string(),
+  "ABOVE" => <>.to_string(),
+  "BELOW" => <>.to_string(),
+  "FROMABOVE" => <>.to_string(),
+  "FROMBELOW" => <>.to_string(),
+  "INSIDECORNER" => <>.to_string(),
+  "OUTSIDECORNER" => <>.to_string(),
+  "STEP" => <>.to_string(),
+  "OXIDE1" => <>.to_string(),
+  "OXIDE2" => <>.to_string(),
+  "OXIDE3" => <>.to_string(),
+  "OXIDE4" => <>.to_string(),
+  "MAXXY" => <>.to_string(),
+  "EUCLIDEAN" => <>.to_string(),
+  "LAYER" => <>.to_string(),
+  "LIBRARY" => <>.to_string(),
+  "MACRO" => <>.to_string(),
+  "NONDEFAULTRULE" => <>.to_string(),
+  "PIN" => <>.to_string(),
+  "VIA" => <>.to_string(),
+  "VIARULE" => <>.to_string(),
+  "GENERATED" => <>.to_string(),
+  "GENERATE" => <>.to_string(),
+  "TOPOFSTACKONLY" => <>.to_string(),
+  "BLACKBOX" => <>.to_string(),
+  "SOFT" => <>.to_string(),
+  "STACK" => <>.to_string(),
+  "PARALLELOVERLAP" => <>.to_string(),
+  "PGONLY" => <>.to_string(),
+  "SAMENET" => <>.to_string(),
+}
 
+non_keyword_identifier: String = {
+    // compile time really slow with size bound ... :(
+    // r#"[^"^\s^\t^\n][^\s^\t^\n]{0,2048}"# => <>.to_string(),
+    // possible bug in LALRPOP .. or maybe not .. something to do with the lexer
+    r#"[^"^\s^\t^\n^#^(^\-^\.^\d^\*][^\s^\t^\n^#^\*]*"# => <>.to_string(),
+}
+
+// We explicitly list all keywords here as valid identifiers to avoid having
+// to use weird hacks elsewhere in the grammar to disambiguate between real
+// tokens and identifiers. LALRPOP string literals have global lexer priority
+// over regex rules, so any keyword used elsewhere in the grammar would never
+// match the identifier regex. The tradeoff is that every new keyword added
+// to the grammar must also be added here if it can appear in an identifier
+// position.
+identifier: String = {
+    <ident:non_keyword_identifier> => ident,
+    <k:keyword> => k, 
+};
+
+pin_name: String = {
   identifier => <>.to_string(),
 };
 
@@ -834,17 +905,16 @@ routing_via: RoutingVia = {
     },
 }
 
-routing_point_item: RoutingPointItem = {
-    <p:point> => RoutingPointItem::Point(p, None),
-    <v:routing_via> => RoutingPointItem::Via(v),
+routing_point: RoutingPoint = {
+    <p:point> <v:routing_via?> => RoutingPoint::new(p, v),
 
     // TODO: implement the rest
     // "MASK" <m:integer> <p:point> => RoutingPointItem::Point(p, Some(m)),
     // <p:point> => RoutingPointItem::Point(p, None),
 }
 
-routing_points: Vec<RoutingPointItem> = {
-    <p:routing_point_item+> => p,
+routing_points: Vec<RoutingPoint> = {
+    <p:routing_point+> => p,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1005,7 +1075,6 @@ special_net_opts: SpecialNetOpts = {
 connection: (String, String) = {
   "(" <c:pattern_match> <p:pin_name> ")" => (c, p),
   "(" <c:identifier> <p:pin_name> ")" => (c, p),
-  "(" "PIN" <p:pin_name> ")" => ("PIN".to_string(), p),
 }
 
 connection_list: Vec<(String, String)> = {

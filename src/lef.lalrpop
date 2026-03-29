@@ -15,76 +15,116 @@ grammar;
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-// match {
-//     r#"[\w]+"#
-//     r#"[\w][\d]+"#
-// } else {
-//     r#"[^"^\s^\t^\n^#^(][^\s^\t^\n^#]+"#,
-//     _
-// }
+keyword: String = {
+  "TYPE" => <>.to_string(),
+  "OVERLAP" => <>.to_string(),
+  "DEFAULT" => <>.to_string(),
+  "CORE" => <>.to_string(),
+  "PAD" => <>.to_string(),
+  "COVER" => <>.to_string(),
+  "END" => <>.to_string(),
+  "CLOCK" => <>.to_string(),
+  "FN" => <>.to_string(),
+  "FS" => <>.to_string(),
+  "FE" => <>.to_string(),
+  "FW" => <>.to_string(),
+  "N" => <>.to_string(),
+  "S" => <>.to_string(),
+  "E" => <>.to_string(),
+  "W" => <>.to_string(),
+  "ON" => <>.to_string(),
+  "OFF" => <>.to_string(),
+  "X" => <>.to_string(),
+  "Y" => <>.to_string(),
+  "R90" => <>.to_string(),
+  "INPUT" => <>.to_string(),
+  "OUTPUT" => <>.to_string(),
+  "INOUT" => <>.to_string(),
+  "RESET" => <>.to_string(),
+  "POWER" => <>.to_string(),
+  "SPACER" => <>.to_string(),
+  "AREAIO" => <>.to_string(),
+  "FEEDTHRU" => <>.to_string(),
+  "TIEHIGH" => <>.to_string(),
+  "TIELOW" => <>.to_string(),
+  "ANTENNACELL" => <>.to_string(),
+  "WELLTAP" => <>.to_string(),
+  "PRE" => <>.to_string(),
+  "POST" => <>.to_string(),
+  "TOPLEFT" => <>.to_string(),
+  "TOPRIGHT" => <>.to_string(),
+  "BOTTOMLEFT" => <>.to_string(),
+  "BOTTOMRIGHT" => <>.to_string(),
+  "SIGNAL" => <>.to_string(),
+  "ANALOG" => <>.to_string(),
+  "GROUND" => <>.to_string(),
+  "ABUTMENT" => <>.to_string(),
+  "RING" => <>.to_string(),
+  "NONE" => <>.to_string(),
+  "BUMP" => <>.to_string(),
+  "TRISTATE" => <>.to_string(),
+  "HORIZONTAL" => <>.to_string(),
+  "VERTICAL" => <>.to_string(),
+  "DIAG45" => <>.to_string(),
+  "DIAG135" => <>.to_string(),
+  "MASTERSLICE" => <>.to_string(),
+  "ABOVE" => <>.to_string(),
+  "BELOW" => <>.to_string(),
+  "FROMABOVE" => <>.to_string(),
+  "FROMBELOW" => <>.to_string(),
+  "INSIDECORNER" => <>.to_string(),
+  "OUTSIDECORNER" => <>.to_string(),
+  "STEP" => <>.to_string(),
+  "OXIDE1" => <>.to_string(),
+  "OXIDE2" => <>.to_string(),
+  "OXIDE3" => <>.to_string(),
+  "OXIDE4" => <>.to_string(),
+  "MAXXY" => <>.to_string(),
+  "EUCLIDEAN" => <>.to_string(),
+  "LAYER" => <>.to_string(),
+  "LIBRARY" => <>.to_string(),
+  "MACRO" => <>.to_string(),
+  "NONDEFAULTRULE" => <>.to_string(),
+  "PIN" => <>.to_string(),
+  "VIA" => <>.to_string(),
+  "VIARULE" => <>.to_string(),
+  "GENERATED" => <>.to_string(),
+  "GENERATE" => <>.to_string(),
+  "TOPOFSTACKONLY" => <>.to_string(),
+  "BLACKBOX" => <>.to_string(),
+  "SOFT" => <>.to_string(),
+  "STACK" => <>.to_string(),
+  "PARALLELOVERLAP" => <>.to_string(),
+  "PGONLY" => <>.to_string(),
+  // TODO: adding this create problems => find a way to avoid this class of problems => custom lexer ?
+  // "SAMENET" => <>.to_string(),
+}
 
-identifier: String = {
-    r#"[^"^\s^\t^\n^#^(][^\s^\t^\n^#]+"# => <>.to_string(),
-    r#"[\w]"# => <>.to_string(),
+non_keyword_identifier: String = {
     // compile time really slow with size bound ... :(
     // r#"[^"^\s^\t^\n][^\s^\t^\n]{0,2048}"# => <>.to_string(),
     // possible bug in LALRPOP .. or maybe not .. something to do with the lexer
-    "TYPE" => <>.to_string(),
-    "type" => <>.to_string(),
-    "OVERLAP" => <>.to_string(),
-    "overlap" => <>.to_string(),
-    "DEFAULT" => <>.to_string(),
-    "default" => <>.to_string(),
-    "CORE" => <>.to_string(),
-    "core" => <>.to_string(),
-    "PAD" => <>.to_string(),
-    "pad" => <>.to_string(),
-    "COVER" => <>.to_string(),
-    "cover" => <>.to_string(),
-    "END" => <>.to_string(),
-    "end" => <>.to_string(),
-    "CLOCK" => <>.to_string(),
-    "clock" => <>.to_string(),
-    "Y" => <>.to_string(),
-    "B" => <>.to_string(),
-    "A" => <>.to_string(),
-    "x" => <>.to_string(),
-    "N" => <>.to_string(),
-    "S" => <>.to_string(),
-    "E" => <>.to_string(),
-    "W" => <>.to_string(),
-    "FN" => <>.to_string(),
-    "FS" => <>.to_string(),
-    "FE" => <>.to_string(),
-    "FW" => <>.to_string(),
-};
+    r#"[^"^\s^\t^\n^#^(^\-^\.^\d^\*][^\s^\t^\n^#^\*]*"# => <>.to_string(),
+}
 
-integer: i32 = {
-  "0" => 0,
-  "1" => 1,
-  "2" => 2,
-  "3" => 3,
-  "4" => 4,
-  "5" => 5,
-  "6" => 6,
-  "7" => 7,
-  "8" => 8,
-  "9" => 9,
-  <i:identifier> => i32::from_str(&i).unwrap_or_else(|_| panic!("'{}' is not an integer", &i)),
+// We explicitly list all keywords here as valid identifiers to avoid having
+// to use weird hacks elsewhere in the grammar to disambiguate between real
+// tokens and identifiers. LALRPOP string literals have global lexer priority
+// over regex rules, so any keyword used elsewhere in the grammar would never
+// match the identifier regex. The tradeoff is that every new keyword added
+// to the grammar must also be added here if it can appear in an identifier
+// position.
+identifier: String = {
+    <ident:non_keyword_identifier> => ident,
+    <k:keyword> => k, 
 };
 
 real: f32 = {
-  "0" => 0.0,
-  "1" => 1.0,
-  "2" => 2.0,
-  "3" => 3.0,
-  "4" => 4.0,
-  "5" => 5.0,
-  "6" => 6.0,
-  "7" => 7.0,
-  "8" => 8.0,
-  "9" => 9.0,
-  <i:identifier> => f32::from_str(&i).unwrap_or_else(|_| panic!("'{}' is not an float", &i)),
+  r#"(-)?[\d]+[\.\deE]*"# => f32::from_str(&<>).unwrap_or_else(|_| panic!("'{}' is not an float", &<>)),
+};
+
+integer: i32 = {
+  <n:real> => n.round() as i32,
 };
 
 string: String = {
@@ -154,35 +194,17 @@ mask_no_semicolon: i32 = {
   "MASK" <n:integer> => n
 };
 
-mask_no_semicolon_opt: Option<i32> = {
-  "MASK" <n:integer> => Some(n),
-  () => None,
-};
-
-property_name_value_list: Vec<NameValue> = {
-  <mut l:property_name_value_list> <i:identifier> <v:value>  => { l.push(NameValue::new(i,v)); l },
-  <i:identifier> <v:value> => vec![NameValue::new(i,v)],
+property_name_value: NameValue = {
+  <i:identifier> <v:value> => NameValue::new(i,v),
 };
 
 property: Property = {
-  "PROPERTY" <l:property_name_value_list> semicolon
+  "PROPERTY" <l:property_name_value*> semicolon
     => Property::new(l),
-};
-property_list: Vec<Property> = {
-  <v:property> <mut l:property_list> => { l.push(v); l },
-  <v:property> => vec![v],
-};
-property_list_opt: Option<Vec<Property>> = {
-  <l:property_list> => Some(l),
-  () => None,
 };
 
 resistance: f32 = {
   "RESISTANCE" <n:real> semicolon => n
-};
-resistance_opt: Option<f32> = {
-  resistance => Some(<>),
-  () => None,
 };
 
 pwl: PieceWiseLinear = {
@@ -192,10 +214,6 @@ pwl: PieceWiseLinear = {
 
 range_no_semicolon: Range<f32> = {
   "RANGE" <min:real> <max:real> => (min,max),
-}
-range_no_semicolon_opt: Option<Range<f32>> = {
-  range_no_semicolon => Some(<>),
-  () => None,
 }
 
 tristate: bool = {
@@ -218,18 +236,13 @@ designrulewidth: f32 = {
   <v:designrulewidth_no_semicolon> semicolon => v,
 };
 point_orient_no_semicolon: PointOrient = {
-  "(" <x:real> <y:real> ")" <o:orient_opt> 
+  "(" <x:real> <y:real> ")" <o:orient?> 
     => Point::new(x,y,o),
-  <x:real> <y:real> <o:orient_opt> 
+  <x:real> <y:real> <o:orient?> 
     => Point::new(x,y,o),
 }
 point_orient: PointOrient = {
   <p:point_orient_no_semicolon> semicolon => p,
-}
-point_orient_list: Vec<PointOrient> = {
-  <v:point_orient> <mut l:point_orient_list> => { l.push(v); l },
-  <v:point_orient> => vec![v],
-  () => vec![],
 }
 // TODO: point needs semicolon in some cases ???
 point: Point = {
@@ -237,10 +250,6 @@ point: Point = {
     => Point::new(x,y,None),
    <x:real> <y:real> 
     => Point::new(x,y,None),
-}
-point_list: Vec<Point> = {
-  <v:point> <mut l:point_list> => { l.push(v); l },
-  <v:point> => vec![v],
 }
 rect: (Point,Point) = {
   <p1:point> <p2:point>
@@ -252,13 +261,9 @@ step_pattern: StepPattern = {
     "STEP" <xs:real> <ys:real>
     => StepPattern::new(x,y,xs,ys),
 }
-step_pattern_opt: Option<StepPattern> = {
-  step_pattern => Some(<>),
-  () => None,
-}
 // [xOrigin yOrigin siteOrient [stepPattern]]
 site_pattern: SitePattern = {
-  <x:real> <y:real> <o:orient> <s:step_pattern_opt>
+  <x:real> <y:real> <o:orient> <s:step_pattern?>
     => SitePattern::new(x,y,o,s),
 }
 
@@ -271,10 +276,6 @@ orient: Orient = {
   "FS" => Orient::FS,
   "FE" => Orient::FE,
   "FW" => Orient::FW,
-}
-orient_opt: Option<Orient> = {
-  <o:orient> => Some(o),
-  () => None,
 }
 
 default: bool = {
@@ -308,48 +309,25 @@ on_off: OnOff = {
 
 centertocenter: bool = {
   "CENTERTOCENTER" => true,
-  () => false,
 };
 samenet: bool = {
   "SAMENET" => true,
-  () => false,
 };
 
 symmetry_enum: Symmetry = {
   "X" => Symmetry::X,
-  "x" => Symmetry::X,
   "Y" => Symmetry::Y,
-  "y" => Symmetry::Y,
   "R90" => Symmetry::R90,
-  "r90" => Symmetry::R90,
-}
-symmetry_list: Vec<Symmetry> = {
-  <v:symmetry_enum> <mut l:symmetry_list>
-    => { l.push(v); l },
-  <v:symmetry_enum> => vec![v],
 }
 symmetry: Vec<Symmetry> = {
-  "SYMMETRY" <l:symmetry_list> semicolon => l
-}
-symmetry_opt: Option<Vec<Symmetry>> = {
-  <v:symmetry> => Some(v),
-  () => None,
+  "SYMMETRY" <l:symmetry_enum*> semicolon => l
 }
 
-rowpattern_: RowPattern = {
+rowpattern_single: RowPattern = {
   <i:identifier> <o:orient> => RowPattern::new(i,o),
 }
-rowpattern_list: Vec<RowPattern> = {
-  <v:rowpattern_> <mut l:rowpattern_list>
-    => { l.push(v); l },
-  <v:rowpattern_> => vec![v],
-}
 rowpattern: Vec<RowPattern> = {
-  "ROWPATTERN" <l:rowpattern_list> semicolon => l
-}
-rowpattern_opt: Option<Vec<RowPattern>> = {
-  <v:rowpattern> => Some(v),
-  () => None,
+  "ROWPATTERN" <l:rowpattern_single*> semicolon => l
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -366,23 +344,23 @@ antennamodel: AntennaModel = {
 };
 
 antennapartialmetalarea: AntennaPartialMetalArea = {
-  "ANTENNAPARTIALMETALAREA" <v:real> <l:layer_name_opt> semicolon
+  "ANTENNAPARTIALMETALAREA" <v:real> <l:layer_name?> semicolon
     => AntennaPartialMetalArea::new(v,l),
 }
 antennapartialmetalsidearea: AntennaPartialMetalSideArea = {
-  "ANTENNAPARTIALMETALSIDEAREA" <v:real> <l:layer_name_opt> semicolon
+  "ANTENNAPARTIALMETALSIDEAREA" <v:real> <l:layer_name?> semicolon
     => AntennaPartialMetalSideArea::new(v,l),
 }
 antennapartialcutarea: AntennaPartialCutArea = {
-  "ANTENNAPARTIALCUTAREA" <v:real> <l:layer_name_opt> semicolon 
+  "ANTENNAPARTIALCUTAREA" <v:real> <l:layer_name?> semicolon 
     => AntennaPartialCutArea::new(v,l),
 }
 antennadiffarea: AntennaDiffArea = {
-  "ANTENNADIFFAREA" <v:real> <l:layer_name_opt> semicolon 
+  "ANTENNADIFFAREA" <v:real> <l:layer_name?> semicolon 
     => AntennaDiffArea::new(v,l),
 }
 antennagatearea: AntennaGateArea = {
-  "ANTENNAGATEAREA" <v:real> <l:layer_name_opt> semicolon 
+  "ANTENNAGATEAREA" <v:real> <l:layer_name?> semicolon 
     => AntennaGateArea::new(v,l),
 }
 antennamaxareacar: AntennaMaxAreaCar = {
@@ -526,16 +504,9 @@ propertydefinitions_values: PropertyDefinition = {
   semicolon
     => propertydefinition(ot, n, pt)
 };
-propertydefinitions_values_list: Vec<PropertyDefinition> = {
-   <v:propertydefinitions_values> <mut l:propertydefinitions_values_list> 
-      =>
-      { l.push(v); l },
-  <v:propertydefinitions_values> =>
-    vec![v]
-};
 propertydefinitions: Vec<PropertyDefinition> = {
   "PROPERTYDEFINITIONS" 
-    <l:propertydefinitions_values_list>
+    <l:propertydefinitions_values*>
   "END" "PROPERTYDEFINITIONS"
     => l 
 };
@@ -555,37 +526,25 @@ propertydefinitions: Vec<PropertyDefinition> = {
 layer_name: String = {
   "LAYER" <n:identifier> => n,
 }
-layer_name_opt: Option<String> = {
-  <l:layer_name> => Some(l),
-  () => None,
-}
 
-layer_cut_spacing_layer_stack: bool = {
+stack: bool = {
   "STACK" => true,
-  () => false,
-};
-layer_cut_spacing_adjacentcuts_num: i32 = {
-  "2" => 2,
-  "3" => 3,
-  "4" => 4,
 };
 layer_cut_spacing_adjacentcuts_exceptsamepgnet : bool = {
   "EXCEPTSAMEPGNET" => true,
-  () => false,
 };
-layer_cut_spacing_opts: Option<LayerCutSpacingEnum> = {
-  "LAYER" <s:identifier> <ls:layer_cut_spacing_layer_stack> => Some(LayerCutSpacingEnum::LAYER(LayerCutSpacingLayer::new(s,ls))),
-  "ADJACENTCUTS" <n:layer_cut_spacing_adjacentcuts_num> "WITHIN" <w:real> <e:layer_cut_spacing_adjacentcuts_exceptsamepgnet>
-    => Some(LayerCutSpacingEnum::ADJACENTCUT(LayerCutSpacingAdjacentCut::new(n,w,e))),
-  "PARALLELOVERLAP" => Some(LayerCutSpacingEnum::PARALLELOVERLAP),
-  "AREA" <n:real> => Some(LayerCutSpacingEnum::AREA(n)),
-  () => None,
+layer_cut_spacing_enum: LayerCutSpacingEnum = {
+  "LAYER" <s:identifier> <ls:stack?> => LayerCutSpacingEnum::LAYER(LayerCutSpacingLayer::new(s,ls)),
+  "ADJACENTCUTS" <n:integer> "WITHIN" <w:real> <e:layer_cut_spacing_adjacentcuts_exceptsamepgnet?>
+    => LayerCutSpacingEnum::ADJACENTCUT(LayerCutSpacingAdjacentCut::new(n,w,e)),
+  "PARALLELOVERLAP" => LayerCutSpacingEnum::PARALLELOVERLAP,
+  "AREA" <n:real> => LayerCutSpacingEnum::AREA(n),
 };
 layer_cut_spacing: LayerCutSpacing = {
   "SPACING" <n:real>
-    <ctc:centertocenter>
-    <s:samenet>
-    <opts:layer_cut_spacing_opts>
+    <ctc:centertocenter?>
+    <s:samenet?>
+    <opts:layer_cut_spacing_enum?>
   semicolon 
     => LayerCutSpacing::new(n,ctc,s,opts)
 };
@@ -611,25 +570,16 @@ layer_arrayspacing_longarray: bool = {
   "LONGARRAY" => true,
   () => false,
 };
-layer_arrayspacing_width: Option<f32> = {
-  "WIDTH" <n:real> => Some(n),
-  () => None,
+layer_arrayspacing_width: f32 = {
+  "WIDTH" <n:real> => n,
 };
 layer_arrayspacing_arraycuts: LayerArraySpacingArrayCuts = {
   "ARRAYCUTS" <c:integer> "SPACING" <s:real>
     => LayerArraySpacingArrayCuts::new(c,s),
 };
-layer_arrayspacing_arraycuts_list: Vec<LayerArraySpacingArrayCuts> = {
-  <mut l:layer_arrayspacing_arraycuts_list> <v:layer_arrayspacing_arraycuts> 
-    => { l.push(v); l },
-  <v:layer_arrayspacing_arraycuts>
-    => vec![v],
-};
 layer_arrayspacing: LayerArraySpacing = {
-  "ARRAYSPACING" <l:layer_arrayspacing_longarray> <w:layer_arrayspacing_width> "CUTSPACING" <c:real> <a:layer_arrayspacing_arraycuts_list> semicolon
-    => LayerArraySpacing::new(l,w,c,Some(a)),
-  "ARRAYSPACING" <l:layer_arrayspacing_longarray> <w:layer_arrayspacing_width> "CUTSPACING" <c:real> semicolon
-    => LayerArraySpacing::new(l,w,c,None),
+  "ARRAYSPACING" <l:layer_arrayspacing_longarray> <w:layer_arrayspacing_width?> "CUTSPACING" <c:real> <a:layer_arrayspacing_arraycuts*> semicolon
+    => LayerArraySpacing::new(l,w,c,a),
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -639,27 +589,22 @@ layer_arrayspacing: LayerArraySpacing = {
 layer_width: f32 = {
   <w:width> semicolon => w
 };
-layer_width_opt: Option<f32> = {
-  "WIDTH" <w:real> semicolon => Some(w),
-  () => None,
+layer_enclosure_type: LayerEnclosureTypeEnum = {
+  "ABOVE" => LayerEnclosureTypeEnum::ABOVE,
+  "BELOW" => LayerEnclosureTypeEnum::BELOW,
 };
-layer_enclosure_type: Option<LayerEnclosureTypeEnum> = {
-  "ABOVE" => Some(LayerEnclosureTypeEnum::ABOVE),
-  "BELOW" => Some(LayerEnclosureTypeEnum::BELOW),
-  () => None,
+layer_enclosure_width_exceptextracut: f32 = {
+  "EXCEPTEXTRACUT" <n:real> => n,
 };
-layer_enclosure_width_exceptextracut: Option<f32> = {
-  "EXCEPTEXTRACUT" <n:real> => Some(n),
-  () => None,
-};
-layer_enclosure_width_length: Option<LayerEnclosureEnum> = {
-  <w:width> <e:layer_enclosure_width_exceptextracut>
-    => Some(LayerEnclosureEnum::WIDTH(LayerEnclosureWidth::new(w,e))),
-  "LENGTH" <n:real> => Some(LayerEnclosureEnum::LENGTH(n)),
-  () => None,
+layer_enclosure_width_length: LayerEnclosureEnum = {
+  <w:width> <e:layer_enclosure_width_exceptextracut?>
+    => LayerEnclosureEnum::WIDTH(LayerEnclosureWidth::new(w,e)),
+  "LENGTH" <n:real> => LayerEnclosureEnum::LENGTH(n),
 };
 layer_enclosure: LayerEnclosure = {
-  "ENCLOSURE" <t:layer_enclosure_type> <n1:real> <n2:real> <wl:layer_enclosure_width_length> semicolon
+  "ENCLOSURE" 
+  <t:layer_enclosure_type?>
+  <n1:real> <n2:real> <wl:layer_enclosure_width_length?> semicolon
     => LayerEnclosure::new(t,n1,n2,wl)
 };
 
@@ -668,7 +613,9 @@ layer_enclosure: LayerEnclosure = {
 ////////////////////////////////////////////////////////////////////////////////
 
 layer_preferenclosure: LayerEnclosure = {
-  "PREFERENCLOSURE" <t:layer_enclosure_type> <n1:real> <n2:real> semicolon
+  "PREFERENCLOSURE"
+  <t:layer_enclosure_type?>
+  <n1:real> <n2:real> semicolon
     => LayerEnclosure::new(t,n1,n2,None)
 };
 
@@ -682,18 +629,16 @@ layer_accurrentdensity_frequency_tableentries: Vec<f32> = {
 layer_accurrentdensity_frequency_frequency: Vec<f32> = {
   "FREQUENCY" <l:real_list> semicolon => l,
 };
-layer_accurrentdensity_frequency_cutarea: Option<Vec<f32>> = {
-  "CUTAREA" <l:real_list> semicolon => Some(l),
-  () => None,
+layer_accurrentdensity_frequency_cutarea: Vec<f32> = {
+  "CUTAREA" <l:real_list> semicolon => l,
 };
-layer_accurrentdensity_frequency_width: Option<Vec<f32>> = {
-  "WIDTH" <l:real_list> semicolon => Some(l),
-  () => None,
+layer_accurrentdensity_frequency_width: Vec<f32> = {
+  "WIDTH" <l:real_list> semicolon => l,
 };
 layer_accurrentdensity_frequency: ACCurrentDensityPeakRMS = {
   <f:layer_accurrentdensity_frequency_frequency>
-     <w:layer_accurrentdensity_frequency_width>
-     <c:layer_accurrentdensity_frequency_cutarea>
+     <w:layer_accurrentdensity_frequency_width?>
+     <c:layer_accurrentdensity_frequency_cutarea?>
        <t:layer_accurrentdensity_frequency_tableentries>
    => ACCurrentDensityPeakRMS::new(f,c,w,t),
 };
@@ -714,8 +659,8 @@ layer_accurrentdensity: ACCurrentDensity = {
 
 layer_dccurrentdensity_type: DCCurrentDensityEnum = {
   real => DCCurrentDensityEnum::REAL(<>),
-    <w:layer_accurrentdensity_frequency_width>
-    <c:layer_accurrentdensity_frequency_cutarea>
+    <w:layer_accurrentdensity_frequency_width?>
+    <c:layer_accurrentdensity_frequency_cutarea?>
       <t:layer_accurrentdensity_frequency_tableentries>
     => DCCurrentDensityEnum::CUTTABLE(DCCurrentDensityCutTable::new(c,w,t))
 };
@@ -855,12 +800,11 @@ layer_cut: LayerCut = {
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-layer_implant_spacing_layer: Option<String> = {
-  "LAYER" <n:identifier> => Some(n),
-  () => None
+layer_implant_spacing_layer: String = {
+  "LAYER" <n:identifier> => n,
 }
 layer_implant_spacing: LayerImplantSpacing = {
-  "SPACING" <s:real> <l:layer_implant_spacing_layer> semicolon
+  "SPACING" <s:real> <l:layer_implant_spacing_layer?> semicolon
     => LayerImplantSpacing::new(s,l),
 };
 
@@ -958,40 +902,29 @@ layer_area: f32 = {
 layer_minsize_size: LayerRoutingSize = {
   <n1:real> <n2:real> => LayerRoutingSize::new(n1,n2),
 };
-layer_minsize_size_list: Vec<LayerRoutingSize> = {
-  <v:layer_minsize_size> <mut l:layer_minsize_size_list> => { l.push(v); l },
-  <v:layer_minsize_size> => vec![v],
-}
-layer_minsize_size_list_opt: Option<Vec<LayerRoutingSize>> = {
-  layer_minsize_size_list => Some(<>),
-  () => None,
-}
 
 layer_minsize: LayerRoutingMinSize = {
-  "MINSIZE" <mw:real> <ml:real> <s2:layer_minsize_size_list_opt> semicolon
+  "MINSIZE" <mw:real> <ml:real> <s2:layer_minsize_size*> semicolon
     => LayerRoutingMinSize::new(LayerRoutingSize::new(mw,ml), s2), 
 };
 layer_wireextension: f32 = {
   "WIREEXTENSION" <v:real> semicolon => v
 };
-layer_minimumcut_within: Option<f32> = {
-  "WITHIN" <v:real> => Some(v),
-  () => None
+layer_minimumcut_within: f32 = {
+  "WITHIN" <v:real> => v,
 };
-layer_minimumcut_from: Option<LayerRoutingMinimumCutFrom> = {
-  "FROMABOVE" => Some(LayerRoutingMinimumCutFrom::FROMABOVE),
-  "FROMBELOW" => Some(LayerRoutingMinimumCutFrom::FROMBELOW),
-  () => None
+layer_minimumcut_from: LayerRoutingMinimumCutFrom = {
+  "FROMABOVE" => LayerRoutingMinimumCutFrom::FROMABOVE,
+  "FROMBELOW" => LayerRoutingMinimumCutFrom::FROMBELOW,
 };
-layer_minimumcut_length: Option<LayerRoutingMinimumCutLength> = {
-  "LENGTH" <l:real> "WITHIN" <w:real> => Some(LayerRoutingMinimumCutLength::new(l,w)),
-  () => None
+layer_minimumcut_length: LayerRoutingMinimumCutLength = {
+  "LENGTH" <l:real> "WITHIN" <w:real> => LayerRoutingMinimumCutLength::new(l,w),
 };
 layer_minimumcut: LayerRoutingMinimumCut = {
   "MINIMUMCUT" <n:integer> <w:width>
-    <wi:layer_minimumcut_within>
-    <f:layer_minimumcut_from>
-    <l:layer_minimumcut_length>
+    <wi:layer_minimumcut_within?>
+    <f:layer_minimumcut_from?>
+    <l:layer_minimumcut_length?>
   semicolon
     => LayerRoutingMinimumCut::new(n,w,wi,f,l),
 };
@@ -1007,13 +940,12 @@ layer_minstep_corner: LayerRoutingMinStepCorner = {
   "OUTSIDECORNER" => LayerRoutingMinStepCorner::OUTSIDECORNER,
   "STEP" => LayerRoutingMinStepCorner::STEP,
 }
-layer_minstep_lengthsum: Option<f32> = {
-  "LENGTHSUM" <n:real> => Some(n),
-  () => None,
+layer_minstep_lengthsum: f32 = {
+  "LENGTHSUM" <n:real> => n,
 }
 layer_minstep: LayerRoutingMinStep = {
-  "MINSTEP" <step:real> <l:layer_minstep_lengthsum> semicolon => LayerRoutingMinStep::new(step, None, l, None),
-  "MINSTEP" <step:real> <c:layer_minstep_corner> <l:layer_minstep_lengthsum> semicolon => LayerRoutingMinStep::new(step,Some(c),l,None),
+  "MINSTEP" <step:real> <l:layer_minstep_lengthsum?> semicolon => LayerRoutingMinStep::new(step, None, l, None),
+  "MINSTEP" <step:real> <c:layer_minstep_corner> <l:layer_minstep_lengthsum?> semicolon => LayerRoutingMinStep::new(step,Some(c),l,None),
   "MINSTEP" <step:real> "MAXEDGES" <e:integer> semicolon => LayerRoutingMinStep::new(step,None,None,Some(e)),
 };
 
@@ -1101,7 +1033,7 @@ layer_fillactivespacing: f32 = {
 layer_routing_spacing_range_enum: LayerRoutingSpacingRangeEnum = {
   "USELENGTHTHRESHOLD" 
     => LayerRoutingSpacingRangeEnum::USELENGTHTHRESHOLD,
-  "INFLUENCE" <v:real> <r:range_no_semicolon_opt> 
+  "INFLUENCE" <v:real> <r:range_no_semicolon?> 
     => LayerRoutingSpacingRangeEnum::INFLUENCE(LayerRoutingSpacingRangeInfluence::new(v,r)),
   <r:range_no_semicolon> 
     => LayerRoutingSpacingRangeEnum::RANGE(r),
@@ -1115,7 +1047,7 @@ layer_routing_spacing_range: LayerRoutingSpacingRange = {
 }
 
 layer_routing_spacing_lengththreshold: LayerRoutingSpacingLengthThreshold = {
-  "LENGTHTHRESHOLD" <max:real> <r:range_no_semicolon_opt>
+  "LENGTHTHRESHOLD" <max:real> <r:range_no_semicolon?>
     => LayerRoutingSpacingLengthThreshold::new(max,r),
 }
 
@@ -1133,9 +1065,12 @@ layer_routing_spacing_endofline: LayerRoutingSpacingEndOfLine = {
     => LayerRoutingSpacingEndOfLine::new(w,wi,None),
 }
 
+pgonly: bool = {
+  "PGONLY" => true,
+  () => false,
+}
 layer_routing_spacing_samenet: LayerRoutingSpacingSameNet = {
-  "SAMENET" => LayerRoutingSpacingSameNet::new(false),
-  "SAMENET" "PGONLY" => LayerRoutingSpacingSameNet::new(true),
+  "SAMENET" <pg:pgonly> => LayerRoutingSpacingSameNet::new(pg),
 }
 
 layer_routing_spacing_notchlength: f32 = {
@@ -1156,13 +1091,9 @@ layer_routing_spacing_enum: LayerRoutingSpacingEnum = {
   layer_routing_spacing_notchlength => LayerRoutingSpacingEnum::NOTCHLENGTH(<>),
   layer_routing_spacing_notch => LayerRoutingSpacingEnum::NOTCH(<>),
 }
-layer_routing_spacing_enum_opt: Option<LayerRoutingSpacingEnum> = {
-  layer_routing_spacing_enum => Some(<>),
-  () => None,
-}
 
 layer_routing_spacing: LayerRoutingSpacing = {
-  "SPACING" <s:real> <e:layer_routing_spacing_enum_opt> semicolon
+  "SPACING" <s:real> <e:layer_routing_spacing_enum?> semicolon
     => LayerRoutingSpacing::new(s,e),
 }
 
@@ -1179,34 +1110,22 @@ layer_routing_spacing: LayerRoutingSpacing = {
 layer_routing_spacingtable_parallel_width: LayerRoutingSpacingTableParallelWidth = {
     "WIDTH" <w:real> <s:real_list>  => LayerRoutingSpacingTableParallelWidth::new(w,s),
 }
-layer_routing_spacingtable_parallel_width_list: Vec<LayerRoutingSpacingTableParallelWidth> = {
-  <v:layer_routing_spacingtable_parallel_width> <mut l:layer_routing_spacingtable_parallel_width_list> => { l.push(v); l },
-  <v:layer_routing_spacingtable_parallel_width> => vec![v],
-}
 
 layer_routing_spacingtable_parallel_spacingtable_width: LayerRoutingSpacingTableParallelSpacingTableWidth = {
   "WIDTH" <w:real> "WITHIN" <wi:real> "SPACING" <s:real> 
     => LayerRoutingSpacingTableParallelSpacingTableWidth::new(w,wi,s),
 }
-layer_routing_spacingtable_parallel_spacingtable_width_list: Vec<LayerRoutingSpacingTableParallelSpacingTableWidth> = {
-  <v:layer_routing_spacingtable_parallel_spacingtable_width> <mut l:layer_routing_spacingtable_parallel_spacingtable_width_list> => { l.push(v); l },
-  <v:layer_routing_spacingtable_parallel_spacingtable_width> => vec![v],
-}
 
 layer_routing_spacingtable_parallel_spacingtable: LayerRoutingSpacingTableParallelSpacingTable = {
   "SPACINGTABLE" "INFLUENCE"
-    <w:layer_routing_spacingtable_parallel_spacingtable_width_list> semicolon
+    <w:layer_routing_spacingtable_parallel_spacingtable_width*> semicolon
       => LayerRoutingSpacingTableParallelSpacingTable::new(w),
-}
-layer_routing_spacingtable_parallel_spacingtable_opt: Option<LayerRoutingSpacingTableParallelSpacingTable> = {
-  layer_routing_spacingtable_parallel_spacingtable => Some(<>),
-  () => None,
 }
 
 layer_routing_spacingtable_parallel: LayerRoutingSpacingTableParallel = {
   "PARALLELRUNLENGTH" <l:real_list>
-    <wl:layer_routing_spacingtable_parallel_width_list> semicolon
-    <sp:layer_routing_spacingtable_parallel_spacingtable_opt> 
+    <wl:layer_routing_spacingtable_parallel_width*> semicolon
+    <sp:layer_routing_spacingtable_parallel_spacingtable?> 
       => LayerRoutingSpacingTableParallel::new(l,wl,sp),
 }
 
@@ -1214,13 +1133,9 @@ layer_routing_spacingtable_twowidths_width: LayerRoutingSpacingTableTwoWidthsWid
     "WIDTH" <w:real> "PRL" <r:real> <s:real_list>  => LayerRoutingSpacingTableTwoWidthsWidth::new(w,Some(r),s),
     "WIDTH" <w:real> <s:real_list>  => LayerRoutingSpacingTableTwoWidthsWidth::new(w,None,s),
 }
-layer_routing_spacingtable_twowidths_width_list: Vec<LayerRoutingSpacingTableTwoWidthsWidth> = {
-  <v:layer_routing_spacingtable_twowidths_width> <mut l:layer_routing_spacingtable_twowidths_width_list> => { l.push(v); l },
-  <v:layer_routing_spacingtable_twowidths_width> => vec![v],
-}
 layer_routing_spacingtable_twowidths: LayerRoutingSpacingTableTwoWidths = {
   "TWOWIDTHS" 
-    <wl:layer_routing_spacingtable_twowidths_width_list> semicolon
+    <wl:layer_routing_spacingtable_twowidths_width*> semicolon
       => LayerRoutingSpacingTableTwoWidths::new(wl),
 }
 
@@ -1461,8 +1376,8 @@ via_viarule: ViaViaRule = {
 }
 
 via_shape: Shape = {
-  "RECT" <m:mask_no_semicolon_opt> <x1:real> <y1:real> <x2:real> <y2:real> semicolon => Shape::new(m,ShapeEnum::RECT((x1,y1),(x2,y2))),
-  "POLYGON" <m:mask_no_semicolon_opt> <l:real_list> semicolon => Shape::new(m,ShapeEnum::POLYGON(l)),
+  "RECT" <m:mask_no_semicolon?> <x1:real> <y1:real> <x2:real> <y2:real> semicolon => Shape::new(m,ShapeEnum::RECT((x1,y1),(x2,y2))),
+  "POLYGON" <m:mask_no_semicolon?> <l:real_list> semicolon => Shape::new(m,ShapeEnum::POLYGON(l)),
 }
 via_shapes: Vec<Shape> = {
   <v:via_shape> <mut l:via_shapes> => { l.push(v); l },
@@ -1498,7 +1413,7 @@ via_type: ViaType = {
 via: Via = {
   "VIA" <n:identifier> <d:default> <g:generated> <t:topofstackonly> comment_opt
   <v:via_type> 
-  <p:property_list_opt>
+  <p:property*>
     <chk_n:end_name> 
     => Via::new(n,d,g,t,v,p,chk_n),
 }
@@ -1546,7 +1461,7 @@ viarule_layer_direction: ViaRuleLayerDirection = {
   "DIRECTION" <d:viarule_layer_direction_enum> semicolon => d
 }
 viarule_layer_enclosure: (f32,f32) = {
-  "ENCLOSURE" <n1:real> <n2:real> semicolon => (n1,n2)
+  <enc:layer_enclosure> => enc.get_overhang(),
 }
 viarule_layer_opts: ViaRuleLayerOpts = {
   <v:viarule_layer_direction> <mut o:viarule_layer_opts> => set_opt![o,direction,v],
@@ -1564,20 +1479,12 @@ viarule_layer: ViaRuleLayer = {
 viarule_via: String = {
   "VIA" <s:identifier> semicolon => s,
 }
-viarule_vias: Vec<String> = {
-  <v:viarule_via> <mut l:viarule_vias> => { l.push(v); l },
-  <v:viarule_via> => vec![v],
-}
-viarule_vias_opt: Option<Vec<String>> = {
-  <l:viarule_vias> => Some(l),
-  () => None,
-}
 
 viarule_generate_cutlayer: ViaRuleGenerateCutLayer = {
   "LAYER" <n:identifier> semicolon
   "RECT" <p1:point> <p2:point> semicolon
   "SPACING" <xs:real> "BY" <ys:real> semicolon
-  <ro:resistance_opt> 
+  <ro:resistance?> 
     => ViaRuleGenerateCutLayer::new(n,Rect::new(p1,p2),(xs,ys),ro),
 };
 
@@ -1585,8 +1492,8 @@ viarule: ViaRule = {
   "VIARULE" <n:identifier> <d:default> comment_opt
     <l1:viarule_layer>
     <l2:viarule_layer>
-    <v:viarule_vias_opt>
-    <p:property_list_opt>
+    <v:viarule_via*>
+    <p:property*>
   <chk_n:end_name>
   => ViaRule::new(n,false,d,l1,l2,None,v,p,chk_n),
 }
@@ -1596,29 +1503,29 @@ viarulegenerate: ViaRule = {
     <l1:viarule_layer>
     <l2:viarule_layer>
     <l3:viarule_generate_cutlayer> 
-    <p:property_list_opt>
+    <p:property*>
   <chk_n:end_name>
-  => ViaRule::new(n,true,d,l1,l2,Some(l3),None,p,chk_n),
+  => ViaRule::new(n,true,d,l1,l2,Some(l3),vec![],p,chk_n),
   "VIARULE" <n:identifier> "GENERATE" <d:default> comment_opt
     <l1:viarule_layer>
     <l3:viarule_generate_cutlayer> 
     <l2:viarule_layer>
-    <p:property_list_opt>
+    <p:property*>
   <chk_n:end_name>
-  => ViaRule::new(n,true,d,l1,l2,Some(l3),None,p,chk_n),
+  => ViaRule::new(n,true,d,l1,l2,Some(l3),vec![],p,chk_n),
   "VIARULE" <n:identifier> "GENERATE" <d:default> comment_opt
     <l3:viarule_generate_cutlayer> 
     <l1:viarule_layer>
     <l2:viarule_layer>
-    <p:property_list_opt>
+    <p:property*>
   <chk_n:end_name>
-  => ViaRule::new(n,true,d,l1,l2,Some(l3),None,p,chk_n),
+  => ViaRule::new(n,true,d,l1,l2,Some(l3),vec![],p,chk_n),
   "VIARULE" <n:identifier> "GENERATE" <d:default> comment_opt
     <l1:viarule_layer>
     <l2:viarule_layer>
-    <p:property_list_opt>
+    <p:property*>
   <chk_n:end_name>
-  => ViaRule::new(n,true,d,l1,l2,None,None,p,chk_n),
+  => ViaRule::new(n,true,d,l1,l2,None,vec![],p,chk_n),
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1989,10 +1896,6 @@ macro_pin_port_class: MacroPinPortClass = {
   "CLASS" <v:macro_pin_port_class_enum> semicolon => v,
   "class" <v:macro_pin_port_class_enum> semicolon => v,
 }
-macro_pin_port_class_opt: Option<MacroPinPortClass> = {
-  macro_pin_port_class => Some(<>),
-  () => None,
-}
 
 // { LAYER layerName
 //         [EXCEPTPGNET]
@@ -2008,58 +1911,48 @@ macro_pin_port_class_opt: Option<MacroPinPortClass> = {
 //     | VIA [MASK viaMaskNum] pt viaName ;
 //     | VIA ITERATE [MASK viaMaskNum] pt viaName stepPattern ;
 //     } ...
-spacing_designrulewidth: Option<LayerGeomDesign> = {
-  <s:simple_spacing_no_semicolon> => Some(LayerGeomDesign::SPACING(s)),
-  <d:designrulewidth_no_semicolon> => Some(LayerGeomDesign::DESIGNRULEWIDTH(d)),
-  () => None,
+spacing_designrulewidth: LayerGeomDesign = {
+  <s:simple_spacing_no_semicolon> => LayerGeomDesign::SPACING(s),
+  <d:designrulewidth_no_semicolon> => LayerGeomDesign::DESIGNRULEWIDTH(d),
 }
 
 layer_geom_shape: LayerGeomShape = {
-  "PATH" <m:mask_no_semicolon_opt> <p:point_list> semicolon
+  "PATH" <m:mask_no_semicolon?> <p:point*> semicolon
     => LayerGeomShape::PATH(LayerGeomShapePath::new(m,p,None)),
-  "PATH" <m:mask_no_semicolon_opt> "ITERATE" <p:point_list> <s:step_pattern_opt> semicolon
+  "PATH" <m:mask_no_semicolon?> "ITERATE" <p:point*> <s:step_pattern?> semicolon
     => LayerGeomShape::PATH(LayerGeomShapePath::new(m,p,s)),
 
-  "RECT" <m:mask_no_semicolon_opt> <p1:point> <p2:point> semicolon
+  "RECT" <m:mask_no_semicolon?> <p1:point> <p2:point> semicolon
     => LayerGeomShape::RECT(LayerGeomShapeRect::new(m,Rect::new(p1,p2),None)),
-  "RECT" <m:mask_no_semicolon_opt> "ITERATE" <p1:point> <p2:point> <s:step_pattern_opt> semicolon
+  "RECT" <m:mask_no_semicolon?> "ITERATE" <p1:point> <p2:point> <s:step_pattern?> semicolon
     => LayerGeomShape::RECT(LayerGeomShapeRect::new(m,Rect::new(p1,p2),s)),
 
-  "POLYGON" <m:mask_no_semicolon_opt> <p:point_list> semicolon
+  "POLYGON" <m:mask_no_semicolon?> <p:point*> semicolon
     => LayerGeomShape::POLYGON(LayerGeomShapePolygon::new(m,Polygon::new(p),None)),
-  "POLYGON" <m:mask_no_semicolon_opt> "ITERATE" <p:point_list> <s:step_pattern_opt> semicolon
+  "POLYGON" <m:mask_no_semicolon?> "ITERATE" <p:point*> <s:step_pattern?> semicolon
     => LayerGeomShape::POLYGON(LayerGeomShapePolygon::new(m,Polygon::new(p),s)),
-}
-layer_geom_shape_list: Vec<LayerGeomShape> = {
-  <v:layer_geom_shape> <mut l:layer_geom_shape_list> => { l.push(v); l },
-  <v:layer_geom_shape> => vec![v],
 }
 
 layer_geom_layer: LayerGeomLayer = {
-  "LAYER" <n:identifier> <e:exceptpgnet> <sd:spacing_designrulewidth> semicolon
-    <w:layer_width_opt>
-    <shapes:layer_geom_shape_list>
+  "LAYER" <n:identifier> <e:exceptpgnet> <sd:spacing_designrulewidth?> semicolon
+    <w:layer_width?>
+    <shapes:layer_geom_shape*>
       => LayerGeomLayer::new(n,e,sd,w,shapes),
 }
 layer_geom_via: LayerGeomVia = {
-  "VIA" <m:mask_no_semicolon_opt> <p:point> <n:identifier> semicolon
+  "VIA" <m:mask_no_semicolon?> <p:point> <n:identifier> semicolon
     => LayerGeomVia::new(m,p,n,None),
-  "VIA ITERATE" <m:mask_no_semicolon_opt> <p:point> <n:identifier> <s:step_pattern_opt> semicolon
+  "VIA ITERATE" <m:mask_no_semicolon?> <p:point> <n:identifier> <s:step_pattern?> semicolon
     => LayerGeomVia::new(m,p,n,s),
 }
 layer_geom: LayerGeom = {
   <l:layer_geom_layer> => LayerGeom::LAYER(l),
   <v:layer_geom_via> => LayerGeom::VIA(v),
 }
-layer_geom_list: Vec<LayerGeom> = {
-  <v:layer_geom> <mut l:layer_geom_list> => { l.push(v); l },
-  <v:layer_geom> => vec![v],
-}
-
 macro_pin_port: MacroPinPort = {
   "PORT" comment_opt 
-    <c:macro_pin_port_class_opt> 
-    <g:layer_geom_list>
+    <c:macro_pin_port_class?> 
+    <g:layer_geom*>
   end
     => MacroPinPort::new(c,g),
 }
@@ -2095,7 +1988,7 @@ macro_pin: MacroPin = {
 
 macro_obs: MacroObstruction = {
   "OBS"
-    <g:layer_geom_list>
+    <g:layer_geom*>
     "END" => MacroObstruction::new(g),
 }
 
@@ -2109,24 +2002,16 @@ macro_density_layer_rect: MacroDensityLayerRect = {
   "RECT" <x1:real> <y1:real> <x2:real> <y2:real> <d:real> semicolon
     => MacroDensityLayerRect::new(Point::new(x1,y1,None), Point::new(x2,y2,None), d),
 };
-macro_density_layer_rect_list: Vec<MacroDensityLayerRect> = {
-  <v:macro_density_layer_rect> <mut l:macro_density_layer_rect_list> => { l.push(v); l },
-  <v:macro_density_layer_rect> => vec![v],
-}
 
 macro_density_layer: MacroDensityLayer = {
   "LAYER" <n:identifier> semicolon
-    <l:macro_density_layer_rect_list> 
+    <l:macro_density_layer_rect*> 
     => MacroDensityLayer::new(n,l),
-}
-macro_density_layer_list: Vec<MacroDensityLayer> = {
-  <v:macro_density_layer> <mut l:macro_density_layer_list> => { l.push(v); l },
-  <v:macro_density_layer> => vec![v],
 }
 
 macro_density: MacroDensity = {
   "DENSITY"
-    <l:macro_density_layer_list>
+    <l:macro_density_layer*>
   "END"
     => MacroDensity::new(l),
 }
@@ -2164,18 +2049,17 @@ macro: Macro = {
       => Macro::new(n,o,chk_n),
 }
 
+
 ////////////////////////////////////////////////////////////////////////////////
 //                                                                            //
 //  SPACINGS section
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-spacing_samenet: bool = {
-  "SAMENET" => true,
-}
 spacing: Spacing = {
-    <sm:spacing_samenet?> <l1:identifier> <l2:identifier> <s:real> semicolon
-    => Spacing::new(sm, l1, l2, s)
+    <sm:samenet?>
+    <l1:identifier> <l2:identifier> <s:real> <st:stack?> semicolon
+    => Spacing::new(sm, l1, l2, s, st)
 }
 spacings: Vec<Spacing> = {
   "SPACING"

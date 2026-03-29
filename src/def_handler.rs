@@ -635,9 +635,14 @@ pub struct RoutingVia {
 }
 
 #[derive(Debug)]
-pub enum RoutingPointItem {
-    Point(Point, Option<i32>), // point with optional mask
-    Via(RoutingVia),
+pub struct RoutingPoint {
+    pub point: Point,
+    pub routing_via: Option<RoutingVia>,
+}
+impl RoutingPoint {
+    pub fn new(point: Point, routing_via: Option<RoutingVia>) -> Self {
+        Self { point, routing_via }
+    }
 }
 
 // Special Wiring Enums
@@ -729,7 +734,7 @@ pub struct SpecialWirePathSegment {
     pub width: i32,
     pub shape: Option<SpecialWireShape>,
     pub style: Option<i32>,
-    pub points: Vec<RoutingPointItem>,
+    pub points: Vec<RoutingPoint>,
 }
 
 #[derive(Debug)]

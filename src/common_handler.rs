@@ -122,6 +122,15 @@ macro_rules! panic_with_context {
     }};
 }
 
+// clean the file from comments
+fn remove_comment_lines(input: String) -> String {
+    input
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 pub fn read_file(input: &OsString) -> Result<String> {
     let input = Path::new(input);
     let mut s = String::new();
@@ -129,5 +138,5 @@ pub fn read_file(input: &OsString) -> Result<String> {
         println!("Input `{}`: I/O Error {}", input.display(), err);
         return Err(eyre!("Input `{}`: I/O Error {}", input.display(), err));
     }
-    Ok(s.to_ascii_uppercase())
+    Ok(remove_comment_lines(s.to_ascii_uppercase()))
 }
