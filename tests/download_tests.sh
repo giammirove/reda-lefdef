@@ -1,5 +1,7 @@
 #!/bin/bash
 
+cd tests
+
 for i in {1..10}
 do
   url="https://www.ispd.cc/contests/19/benchmarks/ispd19_test$i.tgz";
@@ -9,3 +11,5 @@ do
 done
 
 wget --no-check-certificate "https://vlsicad.eecs.umich.edu/BK/ISPD02bench/ibmISPD02Bench_LEFDEF.tar.gz" && tar -xvf ibmISPD02Bench_LEFDEF.tar.gz
+
+cd ..

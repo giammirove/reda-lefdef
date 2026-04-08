@@ -126,7 +126,10 @@ macro_rules! panic_with_context {
 fn remove_comment_lines(input: String) -> String {
     input
         .lines()
-        .filter(|line| !line.trim_start().starts_with('#'))
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            !trimmed.is_empty() && !trimmed.starts_with('#')
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }

@@ -120,7 +120,7 @@ identifier: String = {
 };
 
 real: f32 = {
-  r#"(-)?[\d]+[\.\deE]*"# => f32::from_str(&<>).unwrap_or_else(|_| panic!("'{}' is not an float", &<>)),
+  r#"(-)?(\d+\.?\d*|\.\d+)([eE]\d+)?"# => f32::from_str(&<>).unwrap_or_else(|_| panic!("'{}' is not an float", &<>)),
 };
 
 integer: i32 = {
