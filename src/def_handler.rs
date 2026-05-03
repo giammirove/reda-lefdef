@@ -7,7 +7,7 @@
 #![allow(unused)]
 #![allow(clippy::upper_case_acronyms)]
 use crate::{common_handler::*, def};
-use eyre::{eyre, Result};
+use eyre::{eyre, OptionExt, Result};
 use std::time::Instant;
 use std::{ffi::OsString, fmt};
 
@@ -25,14 +25,14 @@ impl Point {
 
 #[derive(Debug)]
 pub struct Rect {
-    pub x1: i32,
-    pub y1: i32,
-    pub x2: i32,
-    pub y2: i32,
+    pub xl: i32,
+    pub yl: i32,
+    pub xh: i32,
+    pub yh: i32,
 }
 impl Rect {
-    pub fn new(x1: i32, y1: i32, x2: i32, y2: i32) -> Self {
-        Self { x1, y1, x2, y2 }
+    pub fn new(xl: i32, yl: i32, xh: i32, yh: i32) -> Self {
+        Self { xl, yl, xh, yh }
     }
 }
 
@@ -456,6 +456,45 @@ pub struct PinPort {
     pub vias: Option<Vec<(Point, String)>>,
     pub mask: Option<i32>,
 }
+impl PinPort {
+    // simple function to abstract pin as a rect (x,y,w,h)
+    pub fn get_bbox(&self) -> Result<BBox<f32>> {
+        let rects = self
+            .rects
+            .as_ref()
+            .ok_or(eyre!("No rects found in PinPort"))?;
+
+        if rects.is_empty() {
+            return Err(eyre!("Empty rect list in PinPort"));
+        }
+
+        let mut xmin = f32::INFINITY;
+        let mut ymin = f32::INFINITY;
+        let mut xmax = f32::NEG_INFINITY;
+        let mut ymax = f32::NEG_INFINITY;
+
+        for rect in rects {
+            let xl = rect.xl as f32;
+            let yl = rect.yl as f32;
+            let xh = rect.xh as f32;
+            let yh = rect.yh as f32;
+
+            xmin = xmin.min(xl);
+            ymin = ymin.min(yl);
+            xmax = xmax.max(xh);
+            ymax = ymax.max(yh);
+        }
+
+        let w = xmax - xmin;
+        let h = ymax - ymin;
+
+        if w < 0.0 || h < 0.0 || xmin == f32::INFINITY || ymin == f32::INFINITY {
+            return Err(eyre!("Invalid bbox computed for PinPort"));
+        }
+
+        Ok(BBox::new(xmin, ymin, w, h))
+    }
+}
 
 #[derive(Debug)]
 pub struct PinOptPlacement {
@@ -536,6 +575,57 @@ impl Pin {
             special,
             opts,
         }
+    }
+    pub fn get_bbox(&self) -> Result<BBox<f32>> {
+        let ports = self
+            .opts
+            .ports
+            .as_ref()
+            .ok_or_eyre(format!("No ports in Pin {}", self.name))?;
+
+        let mut xmin = f32::INFINITY;
+        let mut ymin = f32::INFINITY;
+        let mut xmax = f32::NEG_INFINITY;
+        let mut ymax = f32::NEG_INFINITY;
+
+        let mut found_any = false;
+
+        for port in ports {
+            match port.get_bbox() {
+                Ok(rect) => {
+                    let xl = rect.xl as f32;
+                    let yl = rect.yl as f32;
+                    let w = rect.w as f32;
+                    let h = rect.h as f32;
+                    let xh = xl + w;
+                    let yh = yl + h;
+
+                    xmin = xmin.min(xl);
+                    ymin = ymin.min(yl);
+                    xmax = xmax.max(xh);
+                    ymax = ymax.max(yh);
+
+                    found_any = true;
+                }
+                _ => {}
+            }
+        }
+
+        if !found_any || xmin == f32::INFINITY {
+            return Err(eyre::eyre!(
+                "Invalid bbox: no geometry found for pin {}",
+                self.name
+            ));
+        }
+
+        let w = xmax - xmin;
+        let h = ymax - ymin;
+
+        if w < 0.0 || h < 0.0 {
+            return Err(eyre::eyre!("Invalid bbox computed for pin {}", self.name));
+        }
+
+        Ok(BBox::new(xmin, ymin, w, h))
     }
 }
 

@@ -49,6 +49,19 @@ pub enum Orient {
     FW,
 }
 
+#[derive(Debug)]
+pub struct BBox<T> {
+    pub xl: T,
+    pub yl: T,
+    pub w: T,
+    pub h: T,
+}
+impl<T> BBox<T> {
+    pub fn new(xl: T, yl: T, w: T, h: T) -> Self {
+        Self { xl, yl, w, h }
+    }
+}
+
 #[macro_export]
 macro_rules! vec_push {
     ($c:ident, $field:ident, $v:expr) => {

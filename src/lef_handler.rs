@@ -40,6 +40,7 @@
 use crate::copy_opt;
 use crate::copy_vec_opt;
 use crate::{common_handler::*, lef};
+use eyre::OptionExt;
 use eyre::{eyre, Result};
 use std::ffi::OsString;
 use std::fmt;
@@ -1904,33 +1905,52 @@ impl MacroPinPort {
         Self { class, geometries }
     }
     // simple function to abstract pin as a rect (x,y,w,h)
-    pub fn get_rect(&self) -> Result<(f32, f32, f32, f32)> {
-        let port_geom = self
-            .geometries
-            .first()
-            .ok_or(eyre!("Cannot find geometry in Macro Pin Port"))?;
-        match port_geom {
-            LayerGeom::LAYER(geom) => {
-                let shape = geom
-                    .shapes
-                    .first()
-                    .ok_or(eyre!("Cannot find shape in geometry of Macro Pin Pin"))?;
-                match shape {
-                    LayerGeomShape::RECT(layer_rect) => {
-                        let rect = &layer_rect.rect;
-                        let x = rect.lb.x;
-                        let y = rect.lb.y;
-                        let w = rect.rt.x - x;
-                        let h = rect.rt.y - y;
-                        assert!(w > 0.);
-                        assert!(h > 0.);
-                        Ok((x, y, w, h))
+    pub fn get_bbox(&self) -> Result<BBox<f32>> {
+        let mut xmin = f32::INFINITY;
+        let mut ymin = f32::INFINITY;
+        let mut xmax = f32::NEG_INFINITY;
+        let mut ymax = f32::NEG_INFINITY;
+
+        let mut found_any = false;
+
+        for port_geom in &self.geometries {
+            match port_geom {
+                LayerGeom::LAYER(geom) => {
+                    for shape in &geom.shapes {
+                        match shape {
+                            LayerGeomShape::RECT(layer_rect) => {
+                                let rect = &layer_rect.rect;
+                                let xl = rect.lb.x;
+                                let yl = rect.lb.y;
+                                let xh = rect.rt.x;
+                                let yh = rect.rt.y;
+                                xmin = xmin.min(xl);
+                                ymin = ymin.min(yl);
+                                xmax = xmax.max(xh);
+                                ymax = ymax.max(yh);
+
+                                found_any = true;
+                            }
+                            _ => return Err(eyre!("Port Geometry Shape not supported")),
+                        }
                     }
-                    _ => Err(eyre!("Port Geometry Shape not supported")),
                 }
+                _ => return Err(eyre!("Port Geometry not supported")),
             }
-            _ => Err(eyre!("Port Geometry not supported")),
         }
+
+        if !found_any || xmin == f32::INFINITY {
+            return Err(eyre::eyre!("Invalid bbox: no geometry found for pin port",));
+        }
+
+        let w = xmax - xmin;
+        let h = ymax - ymin;
+
+        if w < 0.0 || h < 0.0 {
+            return Err(eyre::eyre!("Invalid bbox computed for pin port"));
+        }
+
+        Ok(BBox::new(xmin, ymin, w, h))
     }
 }
 
@@ -1970,6 +1990,58 @@ impl MacroPin {
             panic!("{} is different from {}", name, chk_name);
         }
         Self { name, opts }
+    }
+
+    pub fn get_bbox(&self) -> Result<BBox<f32>> {
+        let ports = self
+            .opts
+            .ports
+            .as_ref()
+            .ok_or_eyre(format!("No ports in Pin {}", self.name))?;
+
+        let mut xmin = f32::INFINITY;
+        let mut ymin = f32::INFINITY;
+        let mut xmax = f32::NEG_INFINITY;
+        let mut ymax = f32::NEG_INFINITY;
+
+        let mut found_any = false;
+
+        for port in ports {
+            match port.get_bbox() {
+                Ok(rect) => {
+                    let xl = rect.xl as f32;
+                    let yl = rect.yl as f32;
+                    let w = rect.w as f32;
+                    let h = rect.h as f32;
+                    let xh = xl + w;
+                    let yh = yl + h;
+
+                    xmin = xmin.min(xl);
+                    ymin = ymin.min(yl);
+                    xmax = xmax.max(xh);
+                    ymax = ymax.max(yh);
+
+                    found_any = true;
+                }
+                _ => {}
+            }
+        }
+
+        if !found_any || xmin == f32::INFINITY {
+            return Err(eyre::eyre!(
+                "Invalid bbox: no geometry found for pin {}",
+                self.name
+            ));
+        }
+
+        let w = xmax - xmin;
+        let h = ymax - ymin;
+
+        if w < 0.0 || h < 0.0 {
+            return Err(eyre::eyre!("Invalid bbox computed for pin {}", self.name));
+        }
+
+        Ok(BBox::new(xmin, ymin, w, h))
     }
 }
 
@@ -2334,6 +2406,14 @@ pub struct LEF {
     pub nondefaultrules: Option<Vec<NonDefaultRule>>,
     pub sites: Option<Vec<Site>>,
     pub macros: Option<Vec<Macro>>,
+}
+
+impl LEF {
+    pub fn get_site(&self) -> Option<&Site> {
+        self.sites
+            .as_ref()
+            .and_then(|sites| sites.iter().find(|s| s.is_core()).or_else(|| sites.first()))
+    }
 }
 
 impl fmt::Display for LEF {

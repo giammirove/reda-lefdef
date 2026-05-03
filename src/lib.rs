@@ -8,6 +8,7 @@ mod def_handler;
 mod lef_handler;
 
 pub use crate::{
-    def_handler::{read_def, DEF},
-    lef_handler::{read_lef, LEF},
+    common_handler::Orient as LEFDEFOrient,
+    def_handler::{read_def, Net as DEFNet, Pin as DEFPin, Point as DEFPoint, DEF},
+    lef_handler::{read_lef, Macro as LEFMacro, LEF},
 };

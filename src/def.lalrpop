@@ -220,8 +220,8 @@ point_list: Vec<Point> = {
 }
 
 rect: Rect = {
-  "(" <x1:integer> <y1:integer> ")" "(" <x2:integer> <y2:integer> ")"
-    => Rect::new(x1, y1, x2, y2),
+  "(" <xl:integer> <yl:integer> ")" "(" <xh:integer> <yh:integer> ")"
+    => Rect::new(xl, yl, xh, yh),
 }
 
 rect_list: Vec<Rect> = {
